@@ -4,6 +4,8 @@
 # The standard name for this image is frr
 #
 
+FROM openshift/origin-release:golang-1.16 as builder-tini
+
 FROM registry.ci.openshift.org/ocp/builder:rhel-8-base-openshift-4.10
 USER root
 
@@ -19,12 +21,6 @@ RUN INSTALL_PKGS=" \
 
 RUN dnf -y update && yum clean all && rm -rf /var/cache/yum/* && rm -rf /var/cache/yum
 
-# Add tini package
-ENV TINI_VERSION v0.19.0
-ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /sbin/tini
-RUN chmod +x /sbin/tini
-
-
 # frr.sh is the entry point. This script examines environment
 # variables to direct operation and configure ovn
 ADD frr.sh /root/
@@ -33,6 +29,8 @@ ADD frr.conf /etc/frr
 ADD vtysh.conf /etc/frr
 
 RUN chown frr:frr /etc/frr/daemons /etc/frr/frr.conf 
+
+COPY --from=builder-tini /tini /sbin/tini
 
 WORKDIR /root
 ENTRYPOINT ["/root/frr.sh", "frr-node"]
