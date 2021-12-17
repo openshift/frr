@@ -9,14 +9,17 @@ USER root
 
 ENV PYTHONDONTWRITEBYTECODE yes
 
+COPY frr-7.5.1-1.el8_4.x86_64.rpm /root
+
 RUN INSTALL_PKGS=" \
 	tcpdump libpcap \
 	iproute iputils strace socat \
-	frr \
 	python3 \
         tini \
         " && \
 	yum install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False $INSTALL_PKGS
+
+RUN dnf install -y /root/frr-7.5.1-1.el8_4.x86_64.rpm
 
 RUN dnf -y update && yum clean all && rm -rf /var/cache/yum/* && rm -rf /var/cache/yum
 
