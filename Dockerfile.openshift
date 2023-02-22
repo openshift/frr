@@ -12,13 +12,14 @@ ENV PYTHONDONTWRITEBYTECODE yes
 RUN INSTALL_PKGS=" \
 	tcpdump libpcap \
 	iproute iputils strace socat \
-	frr \
 	python3 \
         tini \
         " && \
 	yum install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False $INSTALL_PKGS
 
 RUN dnf -y update && yum clean all && rm -rf /var/cache/yum/* && rm -rf /var/cache/yum
+ADD frr-8.3.1-4.el9.i686.rpm /tmp/
+RUN dnf install /tmp/frr-8.3.1-4.el9.i686.rpm
 
 # frr.sh is the entry point. This script examines environment
 # variables to direct operation and configure ovn
