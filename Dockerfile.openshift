@@ -12,12 +12,12 @@ ENV PYTHONDONTWRITEBYTECODE yes
 RUN INSTALL_PKGS=" \
 	tcpdump libpcap \
 	iproute iputils strace socat \
+	catatonit \
 	python3" && \
 	yum install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False $INSTALL_PKGS
+RUN yum install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False frr
 
 RUN dnf -y update && yum clean all && rm -rf /var/cache/yum/* && rm -rf /var/cache/yum
-ADD frr-8.3.1-4.el9.i686.rpm /tmp/
-RUN dnf install -y /tmp/frr-8.3.1-4.el9.i686.rpm
 
 # frr.sh is the entry point. This script examines environment
 # variables to direct operation and configure ovn
@@ -27,10 +27,8 @@ ADD frr.conf /etc/frr
 ADD vtysh.conf /etc/frr
 
 RUN chown frr:frr /etc/frr/daemons /etc/frr/frr.conf
-ADD https://github.com/krallin/tini/releases/download/v0.19.0/tini-static /usr/bin/tini
-RUN chmod a+x /usr/bin/tini
 
-RUN ln -s /usr/bin/tini /sbin/tini
+RUN ln -s /usr/libexec/podman/catatonit /sbin/tini
 RUN usermod -a -G frrvty frr
 
 COPY docker-start /usr/libexec/frr/docker-start
