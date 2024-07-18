@@ -31,6 +31,14 @@ ADD vtysh.conf /etc/frr
 RUN chown frr:frr /etc/frr/daemons /etc/frr/frr.conf
 RUN ln -s /usr/bin/tini /sbin/tini
 
+RUN chown frr:frr /etc/frr/daemons /etc/frr/frr.conf
+
+RUN usermod -a -G frrvty frr
+
+COPY docker-start /usr/libexec/frr/docker-start
+RUN cp -r /usr/libexec/frr /usr/lib/ # required because of the different path on rhel
+
+
 WORKDIR /root
 ENTRYPOINT ["/sbin/tini", "--"]
 
