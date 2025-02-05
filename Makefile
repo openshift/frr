@@ -237,6 +237,7 @@ $(APIDOCSGEN): $(LOCALBIN)
 
 .PHONY: e2etests
 e2etests: ginkgo
+	sleep 2h
 	$(GINKGO) -v $(GINKGO_ARGS) --timeout=3h ./e2etests -- --kubectl=$(KUBECTL) $(TEST_ARGS)
 
 
