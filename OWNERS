@@ -4,19 +4,15 @@ reviewers:
   - russellb
   - dougbtv
   - dcbw
-  - squeed
-  - markdgray
-  - mccv1r0
   - msherif1234
+  - oribon
 approvers:
   - cgoncalves
   - fedepaol
   - russellb
   - dougbtv
   - dcbw
-  - squeed
-  - markdgray
-  - mccv1r0
   - msherif1234
+  - oribon
 component: "Networking"
 subcomponent: "frr"
