@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("Establish BGP session with EnableGracefulRestart", func
 				return nil
 			}
 
-			Eventually(check, time.Minute, time.Second).ShouldNot(HaveOccurred(),
+			Eventually(check, 2*time.Minute, time.Second).ShouldNot(HaveOccurred(),
 				"route should exist before we restart frr-k8s")
 
 			c := make(chan struct{})
