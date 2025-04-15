@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -200,8 +201,17 @@ func (r *FRRConfigurationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&frrk8sv1beta1.FRRConfiguration{}).
-		Watches(&corev1.Node{}, &handler.EnqueueRequestForObject{}).
+		Watches(&frrk8sv1beta1.FRRConfiguration{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				return []reconcile.Request{
+					{NamespacedName: types.NamespacedName{
+						Name:      "frrconfig",
+						Namespace: obj.GetNamespace(),
+					}},
+				}
+			}),
+		).
+		For(&corev1.Node{}).
 		Watches(&corev1.Secret{}, &handler.EnqueueRequestForObject{}).
 		WithEventFilter(p).
 		Complete(r)
