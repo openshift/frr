@@ -13,6 +13,8 @@ ADD . /frr-k8s
 
 WORKDIR /frr-k8s/frr-tools/metrics
 RUN CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-metrics
+WORKDIR /frr-k8s/frr-tools/status
+RUN CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-status
 
 WORKDIR /frr-k8s/cmd
 RUN export SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --verify 'HEAD^{commit}')}" && \
@@ -31,8 +33,10 @@ RUN chmod a+x frr-reloader.sh
 FROM registry.ci.openshift.org/ocp/4.19:base-rhel9
 USER root
 
-COPY --from=frrk8s-builder /frr-k8s/cmd/frr-k8s \
-      /frr-k8s/frr-tools/reloader/frr-reloader.sh /frr-k8s/frr-tools/metrics/frr-metrics /
+COPY --from=frrk8s-builder /frr-k8s/cmd/frr-k8s /
+COPY --from=frrk8s-builder /frr-k8s/frr-tools/reloader/frr-reloader.sh /
+COPY --from=frrk8s-builder /frr-k8s/frr-tools/metrics/frr-metrics /
+COPY --from=frrk8s-builder /frr-k8s/frr-tools/status/frr-status /
 
 ENV PYTHONDONTWRITEBYTECODE yes
 
