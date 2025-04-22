@@ -31,6 +31,7 @@ func ValidateFRRNotPeeredWithNodes(nodes []corev1.Node, c *frrcontainer.FRR, ipF
 }
 
 func ValidateFRRPeeredWithNodes(nodes []corev1.Node, c *frrcontainer.FRR, ipFamily ipfamily.Family) {
+	ginkgo.GinkgoHelper()
 	ginkgo.By(fmt.Sprintf("checking nodes are peered with the frr instance %s", c.Name))
 	Eventually(func() error {
 		neighbors, err := frr.NeighborsInfo(c)

@@ -85,6 +85,12 @@ var _ = ginkgo.Describe("BFD", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 		}
+		if true {
+			testName := ginkgo.CurrentSpecReport().LeafNodeText + "_one"
+			dump.K8sInfo(testName, reporter)
+			dump.BGPInfo(testName, infra.FRRContainers, cs)
+		}
+		time.Sleep(2 * time.Minute)
 
 		withBFD := func(neigh *frrk8sv1beta1.Neighbor) {
 			neigh.BFDProfile = bfdProfileDefault.Name
@@ -104,6 +110,12 @@ var _ = ginkgo.Describe("BFD", func() {
 
 		nodes, err := k8s.Nodes(cs)
 		Expect(err).NotTo(HaveOccurred())
+		time.Sleep(2 * time.Minute)
+		if true {
+			testName := ginkgo.CurrentSpecReport().LeafNodeText + "_two"
+			dump.K8sInfo(testName, reporter)
+			dump.BGPInfo(testName, infra.FRRContainers, cs)
+		}
 
 		for _, c := range infra.FRRContainers {
 			ValidateFRRPeeredWithNodes(nodes, c, pairingFamily)
