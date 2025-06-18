@@ -4,7 +4,7 @@
 # The standard name for this image is frr
 #
 
-FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.23-openshift-4.19 AS frrk8s-builder
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.24-openshift-4.20 AS frrk8s-builder
 WORKDIR /frr-k8s
 
 COPY .git/ .git/
@@ -30,7 +30,7 @@ RUN export SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --verify 'HEA
 WORKDIR /frr-k8s/frr-tools/reloader
 RUN chmod a+x frr-reloader.sh
 
-FROM registry.ci.openshift.org/ocp/4.19:base-rhel9
+FROM registry.ci.openshift.org/ocp/4.20:base-rhel9
 USER root
 
 COPY --from=frrk8s-builder /frr-k8s/cmd/frr-k8s /
