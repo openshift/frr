@@ -1,5 +1,36 @@
 # FRRK8s Release Notes
 
+## Release v0.0.20
+
+### New Features
+
+- FRR Configuration: don't generate the prefix lists if the neighbor is not enabled for that ip family. (#303, @fedepaol)
+- Make the webhook pod host networked so it will be possible to apply frr configurations even if some route is breaking the CNI connectivity. (#305, @fedepaol)
+
+## Release v0.0.19
+
+### New Features
+
+- Deprecate the disableMP flag, and make the v4 over v4 and v6 over v6 behavior the default. Additionally, add a dualStackAddressFamily flag per neighbor, where we enable the v4 family over a v6 link and viceversa. (#296, @fedepaol)
+
+### Bugs or Regressions
+
+- Ignore FRRConfigurations belonging to different namespaces. (#290, @fedepaol)
+
+## Release v0.0.18
+
+### New Features
+
+- Added the BGPSessionState resource, which exposes the status of a BGP session from the FRR instance running on the node. (#257, @oribon)
+
+### Bugs or Regressions
+
+- Add by default the -K (graceful_restart) argument in Zebra so that learnt routes are maintained on the host when zebra process restart. (#231, @karampok)
+- Better handling of high number of FRRConfigurations.
+- Memory improvements. (#291, @fedepaol)
+- Declare the webhook pod to be ready only when it can serve requests, checking the webhook endpoint as readiness probe. (#284, @fedepaol)
+- Limit the number of file descriptors for the FRR daemons instead of defaulting to ulimit. (#272, @fedepaol)
+
 ## Release v0.0.17
 
 ### New Features
