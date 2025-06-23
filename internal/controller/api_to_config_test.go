@@ -57,8 +57,8 @@ func TestConversion(t *testing.T) {
 											ConnectTime: &metav1.Duration{
 												Duration: 2 * time.Second,
 											},
-											DisableMP:             true,
-											EnableGracefulRestart: true,
+											DualStackAddressFamily: true,
+											EnableGracefulRestart:  true,
 										},
 									},
 									VRF:      "",
@@ -77,16 +77,14 @@ func TestConversion(t *testing.T) {
 						RouterID: "192.0.2.1",
 						Neighbors: []*frr.NeighborConfig{
 							{
-								IPFamily:        ipfamily.IPv4,
+								IPFamily:        ipfamily.DualStack,
 								Name:            "65002@192.0.2.2",
 								ASN:             "65002",
-								Port:            ptr.To[uint16](179),
 								SrcAddr:         "192.1.1.1",
 								Addr:            "192.0.2.2",
 								KeepaliveTime:   ptr.To[int64](20),
 								HoldTime:        ptr.To[int64](40),
 								ConnectTime:     ptr.To(int64(2)),
-								DisableMP:       true,
 								GracefulRestart: true,
 							},
 						},
@@ -109,7 +107,7 @@ func TestConversion(t *testing.T) {
 									Neighbors: []v1beta1.Neighbor{
 										{
 											ASN:     65002,
-											Port:    ptr.To[uint16](179),
+											Port:    ptr.To[uint16](178),
 											Address: "192.0.2.2",
 											KeepaliveTime: &metav1.Duration{
 												Duration: 20 * time.Second,
@@ -120,7 +118,6 @@ func TestConversion(t *testing.T) {
 											ConnectTime: &metav1.Duration{
 												Duration: 2 * time.Second,
 											},
-											DisableMP: true,
 										},
 									},
 									VRF:      "",
@@ -142,12 +139,11 @@ func TestConversion(t *testing.T) {
 								IPFamily:      ipfamily.IPv4,
 								Name:          "65002@192.0.2.2",
 								ASN:           "65002",
-								Port:          ptr.To[uint16](179),
+								Port:          ptr.To[uint16](178),
 								Addr:          "192.0.2.2",
 								KeepaliveTime: ptr.To[int64](20),
 								HoldTime:      ptr.To[int64](40),
 								ConnectTime:   ptr.To(int64(2)),
-								DisableMP:     true,
 							},
 						},
 						IPV4Prefixes: []string{"192.0.2.0/24"},
@@ -378,12 +374,7 @@ func TestConversion(t *testing.T) {
 								ASN:      "65041",
 								Addr:     "192.0.2.21",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.2.0/24",
-										},
-									},
+									PrefixesV4: []string{"192.0.2.0/24"},
 								},
 							},
 						},
@@ -444,16 +435,7 @@ func TestConversion(t *testing.T) {
 								ASN:      "65041",
 								Addr:     "192.0.2.21",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.2.0/24",
-										},
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.4.0/24",
-										},
-									},
+									PrefixesV4: []string{"192.0.2.0/24", "192.0.4.0/24"},
 								},
 							},
 							{
@@ -462,26 +444,7 @@ func TestConversion(t *testing.T) {
 								ASN:      "65041",
 								Addr:     "192.0.2.22",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.2.0/24",
-										},
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.3.0/24",
-										},
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.4.0/24",
-										},
-									},
-									PrefixesV6: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv6,
-											Prefix:   "2001:db8::/64",
-										},
-									},
+									PrefixesV4: []string{"192.0.2.0/24", "192.0.3.0/24", "192.0.4.0/24"},
 								},
 							},
 						},
@@ -562,14 +525,14 @@ func TestConversion(t *testing.T) {
 														Community: "10:102",
 													},
 													{
-														Prefixes:  []string{"192.0.2.0/24", "2001:db8::/64"},
+														Prefixes:  []string{"192.0.2.0/24"},
 														Community: "10:108",
 													},
 												},
 											},
 										},
 									},
-									Prefixes: []string{"192.0.2.0/24", "192.0.3.0/24", "192.0.4.0/24", "192.0.6.0/24", "2001:db8::/64"},
+									Prefixes: []string{"192.0.2.0/24", "192.0.3.0/24", "192.0.4.0/24", "192.0.6.0/24"},
 								},
 							},
 						},
@@ -589,26 +552,19 @@ func TestConversion(t *testing.T) {
 								ASN:      "65041",
 								Addr:     "192.0.2.21",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily:         ipfamily.IPv4,
-											Prefix:           "192.0.2.0/24",
-											Communities:      []string{"10:100", "10:102"},
-											LargeCommunities: []string{"123:456:7890"},
-											LocalPref:        100,
-										},
-										{
-											IPFamily:         ipfamily.IPv4,
-											Prefix:           "192.0.4.0/24",
-											Communities:      []string{"10:100", "10:104"},
-											LargeCommunities: []string{"123:456:7890", "123:456:7892"},
-											LocalPref:        104,
-										},
-										{
-											IPFamily:  ipfamily.IPv4,
-											Prefix:    "192.0.6.0/24",
-											LocalPref: 100,
-										},
+									PrefixesV4: []string{"192.0.2.0/24", "192.0.4.0/24", "192.0.6.0/24"},
+									PrefixesV6: []string{},
+									CommunityPrefixesModifiers: []frr.CommunityPrefixList{
+										communityPrefixListFor("192.0.2.21", "10:100", "ip", []string{"192.0.2.0/24", "192.0.4.0/24"}),
+										communityPrefixListFor("192.0.2.21", "10:102", "ip", []string{"192.0.2.0/24"}),
+										communityPrefixListFor("192.0.2.21", "10:104", "ip", []string{"192.0.4.0/24"}),
+										communityPrefixListFor("192.0.2.21", "large:123:456:7890", "ip", []string{"192.0.2.0/24", "192.0.4.0/24"}),
+										communityPrefixListFor("192.0.2.21", "large:123:456:7892", "ip", []string{"192.0.4.0/24"}),
+									},
+
+									LocalPrefPrefixesModifiers: []frr.LocalPrefPrefixList{
+										localPrefPrefixListFor("192.0.2.21", 100, "ip", []string{"192.0.2.0/24", "192.0.6.0/24"}),
+										localPrefPrefixListFor("192.0.2.21", 104, "ip", []string{"192.0.4.0/24"}),
 									},
 								},
 							},
@@ -618,32 +574,84 @@ func TestConversion(t *testing.T) {
 								ASN:      "65041",
 								Addr:     "192.0.2.22",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
+									PrefixesV4: []string{"192.0.2.0/24", "192.0.3.0/24", "192.0.4.0/24", "192.0.6.0/24"},
+									PrefixesV6: []string{},
+									CommunityPrefixesModifiers: []frr.CommunityPrefixList{
+										communityPrefixListFor("192.0.2.22", "10:100", "ip", []string{"192.0.2.0/24", "192.0.4.0/24"}),
+										communityPrefixListFor("192.0.2.22", "10:102", "ip", []string{"192.0.2.0/24"}),
+										communityPrefixListFor("192.0.2.22", "10:108", "ip", []string{"192.0.2.0/24"}),
+									},
+								},
+							},
+						},
+						IPV4Prefixes: []string{"192.0.2.0/24", "192.0.3.0/24", "192.0.4.0/24", "192.0.6.0/24"},
+					},
+				},
+			},
+			err: nil,
+		}, {
+			name: "Neighbor with ToAdvertise, with communities and localPref, dual stack",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65040,
+									ID:  "192.0.2.20",
+									Neighbors: []v1beta1.Neighbor{
 										{
-											IPFamily:    ipfamily.IPv4,
-											Prefix:      "192.0.2.0/24",
-											Communities: []string{"10:100", "10:102", "10:108"},
-										},
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.3.0/24",
-										},
-										{
-											IPFamily:    ipfamily.IPv4,
-											Prefix:      "192.0.4.0/24",
-											Communities: []string{"10:100"},
-										},
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.6.0/24",
+											ASN:     65041,
+											Address: "192.0.2.22",
+											ToAdvertise: v1beta1.Advertise{
+												Allowed: v1beta1.AllowedOutPrefixes{
+													Mode: v1beta1.AllowAll,
+												},
+												PrefixesWithCommunity: []v1beta1.CommunityPrefixes{
+													{
+														Prefixes:  []string{"192.0.2.0/24", "192.0.4.0/24"},
+														Community: "10:100",
+													},
+													{
+														Prefixes:  []string{"192.0.2.0/24"},
+														Community: "10:102",
+													},
+													{
+														Prefixes:  []string{"192.0.2.0/24", "2001:db8::/64"},
+														Community: "10:108",
+													},
+												},
+											},
+											DualStackAddressFamily: true,
 										},
 									},
-									PrefixesV6: []frr.OutgoingFilter{
-										{
-											IPFamily:    ipfamily.IPv6,
-											Prefix:      "2001:db8::/64",
-											Communities: []string{"10:108"},
-										},
+									Prefixes: []string{"192.0.2.0/24", "192.0.3.0/24", "192.0.4.0/24", "192.0.6.0/24", "2001:db8::/64"},
+								},
+							},
+						},
+					},
+				},
+			},
+			secrets: map[string]v1.Secret{},
+			expected: &frr.Config{
+				Routers: []*frr.RouterConfig{
+					{
+						MyASN:    65040,
+						RouterID: "192.0.2.20",
+						Neighbors: []*frr.NeighborConfig{
+							{
+								IPFamily: ipfamily.DualStack,
+								Name:     "65041@192.0.2.22",
+								ASN:      "65041",
+								Addr:     "192.0.2.22",
+								Outgoing: frr.AllowedOut{
+									PrefixesV4: []string{"192.0.2.0/24", "192.0.3.0/24", "192.0.4.0/24", "192.0.6.0/24"},
+									PrefixesV6: []string{"2001:db8::/64"},
+									CommunityPrefixesModifiers: []frr.CommunityPrefixList{
+										communityPrefixListFor("192.0.2.22", "10:100", "ip", []string{"192.0.2.0/24", "192.0.4.0/24"}),
+										communityPrefixListFor("192.0.2.22", "10:102", "ip", []string{"192.0.2.0/24"}),
+										communityPrefixListFor("192.0.2.22", "10:108", "ip", []string{"192.0.2.0/24"}),
+										communityPrefixListFor("192.0.2.22", "10:108", "ipv6", []string{"2001:db8::/64"}),
 									},
 								},
 							},
@@ -876,6 +884,40 @@ func TestConversion(t *testing.T) {
 										},
 									},
 									Prefixes: []string{"192.0.2.0/24", "10.0.0.0/24"},
+								},
+							},
+						},
+					},
+				},
+			},
+			secrets:  map[string]v1.Secret{},
+			expected: nil,
+			err:      fmt.Errorf("a not nil error"),
+		},
+		{
+			name: "One neighbor, trying to set localpref on non existing prefix",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65040,
+									ID:  "192.0.2.20",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:     65041,
+											Address: "192.0.2.21",
+											ToAdvertise: v1beta1.Advertise{
+												PrefixesWithLocalPref: []v1beta1.LocalPrefPrefixes{
+													{
+														Prefixes:  []string{"10.0.0.0/24"},
+														LocalPref: 100,
+													},
+												},
+											},
+										},
+									},
 								},
 							},
 						},
@@ -1226,18 +1268,14 @@ func TestConversion(t *testing.T) {
 								ASN:      "65012",
 								Addr:     "192.0.2.7",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily:    ipfamily.IPv4,
-											Prefix:      "192.0.2.10/32",
-											Communities: []string{"10:100", "10:101"},
-											LocalPref:   200,
-										},
-										{
-											IPFamily:    ipfamily.IPv4,
-											Prefix:      "192.0.2.11/32",
-											Communities: []string{"10:101"},
-										},
+									PrefixesV4: []string{"192.0.2.10/32", "192.0.2.11/32"},
+									PrefixesV6: []string{},
+									CommunityPrefixesModifiers: []frr.CommunityPrefixList{
+										communityPrefixListFor("192.0.2.7", "10:100", "ip", []string{"192.0.2.10/32"}),
+										communityPrefixListFor("192.0.2.7", "10:101", "ip", []string{"192.0.2.10/32", "192.0.2.11/32"}),
+									},
+									LocalPrefPrefixesModifiers: []frr.LocalPrefPrefixList{
+										localPrefPrefixListFor("192.0.2.7", 200, "ip", []string{"192.0.2.10/32"}),
 									},
 								},
 								Incoming: frr.AllowedIn{
@@ -1531,16 +1569,7 @@ func TestConversion(t *testing.T) {
 								ASN:      "65011",
 								Addr:     "192.0.2.6",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.3.1/32",
-										},
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.3.2/32",
-										},
-									},
+									PrefixesV4: []string{"192.0.3.1/32", "192.0.3.2/32"},
 								},
 							},
 							{
@@ -1549,29 +1578,13 @@ func TestConversion(t *testing.T) {
 								ASN:      "65012",
 								Addr:     "192.0.2.7",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily:    ipfamily.IPv4,
-											Prefix:      "192.0.2.10/32",
-											Communities: []string{"10:100", "10:101"},
-											LocalPref:   200,
-										},
-										{
-											IPFamily:    ipfamily.IPv4,
-											Prefix:      "192.0.2.11/32",
-											Communities: []string{"10:101"},
-										},
-										{
-											IPFamily:    ipfamily.IPv4,
-											Prefix:      "192.0.3.20/32",
-											Communities: []string{"10:100"},
-										},
-										{
-											IPFamily:    ipfamily.IPv4,
-											Prefix:      "192.0.3.21/32",
-											Communities: []string{"10:101"},
-											LocalPref:   200,
-										},
+									PrefixesV4: []string{"192.0.2.10/32", "192.0.2.11/32", "192.0.3.20/32", "192.0.3.21/32"},
+									CommunityPrefixesModifiers: []frr.CommunityPrefixList{
+										communityPrefixListFor("192.0.2.7", "10:100", "ip", []string{"192.0.3.20/32", "192.0.2.10/32"}),
+										communityPrefixListFor("192.0.2.7", "10:101", "ip", []string{"192.0.2.10/32", "192.0.2.11/32", "192.0.3.21/32"}),
+									},
+									LocalPrefPrefixesModifiers: []frr.LocalPrefPrefixList{
+										localPrefPrefixListFor("192.0.2.7", 200, "ip", []string{"192.0.2.10/32", "192.0.3.21/32"}),
 									},
 								},
 							},
@@ -1590,12 +1603,7 @@ func TestConversion(t *testing.T) {
 								Addr:     "192.0.2.7",
 								VRFName:  "vrf2",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.2.5/32",
-										},
-									},
+									PrefixesV4: []string{"192.0.2.5/32"},
 								},
 							},
 							{
@@ -1605,22 +1613,7 @@ func TestConversion(t *testing.T) {
 								Addr:     "2001:db8::4",
 								VRFName:  "vrf2",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: "ipv4",
-											Prefix:   "192.0.2.5/32",
-										},
-									},
-									PrefixesV6: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv6,
-											Prefix:   "2001:db8::/64",
-										},
-										{
-											IPFamily: ipfamily.IPv6,
-											Prefix:   "2001:db9::/96",
-										},
-									},
+									PrefixesV6: []string{"2001:db8::/64", "2001:db9::/96"},
 								},
 							},
 						},
@@ -2413,16 +2406,7 @@ func TestConversion(t *testing.T) {
 								ASN:      "65041",
 								Addr:     "192.0.2.21",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.2.0/24",
-										},
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.5.0/24",
-										},
-									},
+									PrefixesV4: []string{"192.0.2.0/24", "192.0.5.0/24"},
 								},
 							},
 							{
@@ -2431,25 +2415,7 @@ func TestConversion(t *testing.T) {
 								ASN:      "65041",
 								Addr:     "192.0.2.22",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.2.0/24",
-										},
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.5.0/24",
-										},
-									},
-									PrefixesV6: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv6,
-											Prefix:   "2001:db8::/64",
-										}, {
-											IPFamily: ipfamily.IPv6,
-											Prefix:   "2001:db9::/64",
-										},
-									},
+									PrefixesV4: []string{"192.0.2.0/24", "192.0.5.0/24"},
 								},
 							},
 						},
@@ -2552,25 +2518,7 @@ func TestConversion(t *testing.T) {
 								Addr:     "192.0.2.22",
 								VRFName:  "red",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.2.0/24",
-										},
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.5.0/24",
-										},
-									},
-									PrefixesV6: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv6,
-											Prefix:   "2001:db8::/64",
-										}, {
-											IPFamily: ipfamily.IPv6,
-											Prefix:   "2001:db9::/64",
-										},
-									},
+									PrefixesV4: []string{"192.0.2.0/24", "192.0.5.0/24"},
 								},
 							},
 						},
@@ -2687,18 +2635,7 @@ func TestConversion(t *testing.T) {
 								ASN:      "internal",
 								Addr:     "192.0.2.22",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.2.0/24",
-										},
-									},
-									PrefixesV6: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv6,
-											Prefix:   "2001:db8::/64",
-										},
-									},
+									PrefixesV4: []string{"192.0.2.0/24"},
 								},
 							},
 						},
@@ -2753,18 +2690,8 @@ func TestConversion(t *testing.T) {
 								Iface:    "eth0",
 								Addr:     "",
 								Outgoing: frr.AllowedOut{
-									PrefixesV4: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv4,
-											Prefix:   "192.0.2.0/24",
-										},
-									},
-									PrefixesV6: []frr.OutgoingFilter{
-										{
-											IPFamily: ipfamily.IPv6,
-											Prefix:   "2001:db8::/64",
-										},
-									},
+									PrefixesV4: []string{"192.0.2.0/24"},
+									PrefixesV6: []string{"2001:db8::/64"},
 								},
 							},
 						},
@@ -2807,6 +2734,401 @@ func TestConversion(t *testing.T) {
 			secrets: map[string]v1.Secret{},
 			err:     errors.New("a not nil error"),
 		},
+		{
+			name: "Single router two neighbors same address different ASN",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65001,
+									ID:  "192.0.2.1",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:     65041,
+											Address: "192.0.2.21",
+										},
+										{
+											ASN:     65042,
+											Address: "192.0.2.21",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: nil,
+			err:      errors.New("a not nil error"),
+		},
+		{
+			name: "Single router two neighbors same interface different ASN",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65010,
+									ID:  "192.0.2.5",
+									VRF: "",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:       65010,
+											Interface: "eth0",
+										},
+										{
+											ASN:       65011,
+											Interface: "eth0",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			secrets: map[string]v1.Secret{},
+			err:     errors.New("a not nil error"),
+		},
+		{
+			name: "Single router two neighbors different interface",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65010,
+									ID:  "192.0.2.5",
+									VRF: "",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:       65010,
+											Interface: "eth0",
+										},
+										{
+											ASN:       65010,
+											Interface: "eth1",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &frr.Config{
+				Routers: []*frr.RouterConfig{
+					{
+						MyASN:    65010,
+						VRF:      "",
+						RouterID: "192.0.2.5",
+						Neighbors: []*frr.NeighborConfig{
+							{
+								IPFamily: "dual",
+								Name:     "65010@eth0",
+								ASN:      "65010",
+								Iface:    "eth0",
+								Addr:     "",
+							},
+							{
+								IPFamily: "dual",
+								Name:     "65010@eth1",
+								ASN:      "65010",
+								Iface:    "eth1",
+								Addr:     "",
+							},
+						},
+					},
+				},
+			},
+			secrets: map[string]v1.Secret{},
+			err:     nil,
+		},
+		{
+			name: "Multiple routers same vrf two neighbors same interface",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65010,
+									ID:  "192.0.2.5",
+									VRF: "blue",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:       65010,
+											Interface: "eth0",
+										},
+									},
+								},
+								{
+									ASN: 65010,
+									ID:  "192.0.2.5",
+									VRF: "blue",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:       65011,
+											Interface: "eth0",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			secrets: map[string]v1.Secret{},
+			err:     errors.New("a not nil error"),
+		},
+		{
+			name: "Multiple routers same vrf two neighbors different interface",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65010,
+									ID:  "192.0.2.5",
+									VRF: "blue",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:       65010,
+											Interface: "eth0",
+										},
+									},
+								},
+								{
+									ASN: 65010,
+									ID:  "192.0.2.5",
+									VRF: "blue",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:       65011,
+											Interface: "eth1",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &frr.Config{
+				Routers: []*frr.RouterConfig{
+					{
+						MyASN:    65010,
+						VRF:      "blue",
+						RouterID: "192.0.2.5",
+						Neighbors: []*frr.NeighborConfig{
+							{
+								IPFamily: "dual",
+								Name:     "65010@eth0",
+								VRFName:  "blue",
+								ASN:      "65010",
+								Iface:    "eth0",
+								Addr:     "",
+							},
+							{
+								IPFamily: "dual",
+								Name:     "65011@eth1",
+								VRFName:  "blue",
+								ASN:      "65011",
+								Iface:    "eth1",
+								Addr:     "",
+							},
+						},
+					},
+				},
+			},
+			secrets: map[string]v1.Secret{},
+			err:     nil,
+		},
+
+		{
+			name: "ipv4 neighbor, v6 routes are not allowed to be advertised",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65040,
+									ID:  "192.0.2.20",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:     65041,
+											Address: "192.0.2.21",
+											ToAdvertise: v1beta1.Advertise{
+												Allowed: v1beta1.AllowedOutPrefixes{
+													Prefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+													Mode:     v1beta1.AllowRestricted,
+												},
+											},
+										},
+									},
+									Prefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+								},
+							},
+						},
+					},
+				},
+			},
+			secrets: map[string]v1.Secret{},
+			err:     fmt.Errorf("refix 2001:db8::/64 is not compatible with the ipfamily ipv4"),
+		}, {
+			name: "ipv4 neighbor, v6 routes are not allowed to be advertised with Community",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65040,
+									ID:  "192.0.2.20",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:     65041,
+											Address: "192.0.2.21",
+											ToAdvertise: v1beta1.Advertise{
+												Allowed: v1beta1.AllowedOutPrefixes{
+													Mode: v1beta1.AllowAll,
+												},
+												PrefixesWithCommunity: []v1beta1.CommunityPrefixes{
+													{
+														Prefixes:  []string{"192.0.2.0/24", "2001:db8::/64"},
+														Community: "10:100",
+													},
+												},
+											},
+										},
+									},
+									Prefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+								},
+							},
+						},
+					},
+				},
+			},
+			secrets: map[string]v1.Secret{},
+			err:     fmt.Errorf("refix 2001:db8::/64 is not compatible with the ipfamily ipv4"),
+		}, {
+			name: "ipv4 neighbor, v6 routes are not allowed to be advertised with localpref",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65040,
+									ID:  "192.0.2.20",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:     65041,
+											Address: "192.0.2.21",
+											ToAdvertise: v1beta1.Advertise{
+												Allowed: v1beta1.AllowedOutPrefixes{
+													Mode: v1beta1.AllowAll,
+												},
+												PrefixesWithLocalPref: []v1beta1.LocalPrefPrefixes{
+													{
+														Prefixes:  []string{"192.0.2.0/24", "2001:db8::/64"},
+														LocalPref: 100,
+													},
+												},
+											},
+										},
+									},
+									Prefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+								},
+							},
+						},
+					},
+				},
+			},
+			secrets: map[string]v1.Secret{},
+			err:     fmt.Errorf("refix 2001:db8::/64 is not compatible with the ipfamily ipv4"),
+		}, {
+			name: "ipv4 neighbor, dualstack family, v4 and v6 routes are advertised",
+			fromK8s: []v1beta1.FRRConfiguration{
+				{
+					Spec: v1beta1.FRRConfigurationSpec{
+						BGP: v1beta1.BGPConfig{
+							Routers: []v1beta1.Router{
+								{
+									ASN: 65040,
+									ID:  "192.0.2.20",
+									Neighbors: []v1beta1.Neighbor{
+										{
+											ASN:     65041,
+											Address: "192.0.2.21",
+											ToAdvertise: v1beta1.Advertise{
+												Allowed: v1beta1.AllowedOutPrefixes{
+													Prefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+													Mode:     v1beta1.AllowRestricted,
+												},
+												PrefixesWithCommunity: []v1beta1.CommunityPrefixes{
+													{
+														Prefixes:  []string{"192.0.2.0/24", "2001:db8::/64"},
+														Community: "10:100",
+													},
+												},
+												PrefixesWithLocalPref: []v1beta1.LocalPrefPrefixes{
+													{
+														Prefixes:  []string{"192.0.2.0/24", "2001:db8::/64"},
+														LocalPref: 100,
+													},
+												},
+											},
+											DualStackAddressFamily: true,
+										},
+									},
+									Prefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+								},
+							},
+						},
+					},
+				},
+			},
+			secrets: map[string]v1.Secret{},
+			expected: &frr.Config{
+				Routers: []*frr.RouterConfig{
+					{
+						MyASN:    65040,
+						RouterID: "192.0.2.20",
+						Neighbors: []*frr.NeighborConfig{
+							{
+								IPFamily: ipfamily.DualStack,
+								Name:     "65041@192.0.2.21",
+								ASN:      "65041",
+								Addr:     "192.0.2.21",
+								Outgoing: frr.AllowedOut{
+									PrefixesV4: []string{"192.0.2.0/24"},
+									PrefixesV6: []string{"2001:db8::/64"},
+									CommunityPrefixesModifiers: []frr.CommunityPrefixList{
+										communityPrefixListFor("192.0.2.21", "10:100", "ip", []string{"192.0.2.0/24"}),
+										communityPrefixListFor("192.0.2.21", "10:100", "ipv6", []string{"2001:db8::/64"}),
+									},
+
+									LocalPrefPrefixesModifiers: []frr.LocalPrefPrefixList{
+										localPrefPrefixListFor("192.0.2.21", 100, "ip", []string{"192.0.2.0/24"}),
+										localPrefPrefixListFor("192.0.2.21", 100, "ipv6", []string{"2001:db8::/64"}),
+									},
+								},
+							},
+						},
+						IPV4Prefixes: []string{"192.0.2.0/24"},
+						IPV6Prefixes: []string{"2001:db8::/64"},
+					},
+				},
+			},
+			err: nil,
+		},
 	}
 
 	for _, test := range tests {
@@ -2822,7 +3144,11 @@ func TestConversion(t *testing.T) {
 			if test.err == nil && err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
-			if diff := cmp.Diff(frr, test.expected, cmpopts.EquateEmpty()); diff != "" {
+
+			if diff := cmp.Diff(frr, test.expected,
+				cmpopts.EquateEmpty(),
+				cmp.Comparer(communityComparer),
+			); diff != "" {
 				t.Fatalf("config different from expected: %s", diff)
 			}
 		})
