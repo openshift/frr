@@ -16,10 +16,17 @@ RUN CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-metrics
 WORKDIR /frr-k8s/frr-tools/status
 RUN CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-status
 
-WORKDIR /frr-k8s/cmd
+WORKDIR /frr-k8s/cmd/frr-k8s-controller
 RUN export SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --verify 'HEAD^{commit}')}" && \
       export GIT_BRANCH="${GIT_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}" && \
       CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-k8s \
+      -ldflags "-X frr-k8s/internal/version.gitCommit=${SOURCE_GIT_COMMIT} \
+      -X frr-k8s/internal/version.gitBranch=${GIT_BRANCH}"
+
+WORKDIR /frr-k8s/cmd/statuscleaner
+RUN export SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --verify 'HEAD^{commit}')}" && \
+      export GIT_BRANCH="${GIT_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}" && \
+      CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./statuscleaner \
       -ldflags "-X frr-k8s/internal/version.gitCommit=${SOURCE_GIT_COMMIT} \
       -X frr-k8s/internal/version.gitBranch=${GIT_BRANCH}"
 
@@ -33,7 +40,8 @@ RUN chmod a+x frr-reloader.sh
 FROM registry.ci.openshift.org/ocp/4.20:base-rhel9
 USER root
 
-COPY --from=frrk8s-builder /frr-k8s/cmd/frr-k8s /
+COPY --from=frrk8s-builder /frr-k8s/cmd/frr-k8s-controller/frr-k8s /
+COPY --from=frrk8s-builder /frr-k8s/cmd/statuscleaner/statuscleaner /
 COPY --from=frrk8s-builder /frr-k8s/frr-tools/reloader/frr-reloader.sh /
 COPY --from=frrk8s-builder /frr-k8s/frr-tools/metrics/frr-metrics /
 COPY --from=frrk8s-builder /frr-k8s/frr-tools/status/frr-status /
