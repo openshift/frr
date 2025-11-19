@@ -356,7 +356,7 @@ _Appears in:_
 >>>>>>> upstreamfrr/main
 | `toAdvertise` _[Advertise](#advertise)_ | ToAdvertise represents the list of prefixes to advertise to the given neighbor<br />and the associated properties. |  |  |
 | `toReceive` _[Receive](#receive)_ | ToReceive represents the list of prefixes to receive from the given neighbor. |  |  |
-| `disableMP` _boolean_ | To set if we want to disable MP BGP that will separate IPv4 and IPv6 route exchanges into distinct BGP sessions.<br />Deprecated: DisableMP is deprecated in favor of dualStackAddressFamily. | false |  |
+| `disableMP` _boolean_ | To set if we want to disable MP BGP that will separate IPv4 and IPv6 route exchanges into distinct BGP sessions.<br /><br />Deprecated: DisableMP is deprecated in favor of dualStackAddressFamily. | false |  |
 | `dualStackAddressFamily` _boolean_ | To set if we want to enable the neighbor not only for the ipfamily related to its session,<br />but also the other one. This allows to advertise/receive IPv4 prefixes over IPv6 sessions and vice versa. | false |  |
 
 
