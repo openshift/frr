@@ -11,9 +11,9 @@ COPY .git/ .git/
 
 ADD . /frr-k8s
 
-WORKDIR /frr-k8s/frr-tools/metrics
+WORKDIR /frr-k8s/cmd/metrics
 RUN CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-metrics
-WORKDIR /frr-k8s/frr-tools/status
+WORKDIR /frr-k8s/cmd/status
 RUN CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-status
 
 WORKDIR /frr-k8s/cmd/frr-k8s-controller
@@ -34,7 +34,7 @@ RUN export SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --verify 'HEA
 # When running as non root and building in an environment that `umask` masks out
 # '+x' for others, it won't be possible to execute. Make sure all can execute,
 # just in case
-WORKDIR /frr-k8s/frr-tools/reloader
+WORKDIR /frr-k8s/cmd/reloader
 RUN chmod a+x frr-reloader.sh
 
 FROM registry.ci.openshift.org/ocp/4.21:base-rhel9
@@ -42,9 +42,9 @@ USER root
 
 COPY --from=frrk8s-builder /frr-k8s/cmd/frr-k8s-controller/frr-k8s /
 COPY --from=frrk8s-builder /frr-k8s/cmd/statuscleaner/statuscleaner /
-COPY --from=frrk8s-builder /frr-k8s/frr-tools/reloader/frr-reloader.sh /
-COPY --from=frrk8s-builder /frr-k8s/frr-tools/metrics/frr-metrics /
-COPY --from=frrk8s-builder /frr-k8s/frr-tools/status/frr-status /
+COPY --from=frrk8s-builder /frr-k8s/cmd/reloader/frr-reloader.sh /
+COPY --from=frrk8s-builder /frr-k8s/cmd/metrics/frr-metrics /
+COPY --from=frrk8s-builder /frr-k8s/cmd/status/frr-status /
 
 ENV PYTHONDONTWRITEBYTECODE yes
 
