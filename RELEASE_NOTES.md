@@ -1,4 +1,4 @@
-# FRRK8s Release Notes
+# FRRK8s Release Notes.
 
 ## Release v0.0.17
 
