@@ -159,6 +159,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install linux-modules-extra-$(uname -r)
 
+      # Cluster creation is handled here by quick-k8s instead of inside the
+      # Makefile (hack/kind.sh). When `make deploy-with-prometheus` runs later,
+      # hack/kind.sh detects the existing cluster and exits early.
+      - name: Create KinD cluster
+        uses: palmsoftware/quick-k8s@v0.0.49
+        with:
+          clusterName: frr-k8s
+          ipFamily: ${{ matrix.ip-family }}
+          numWorkerNodes: 2 # matches original hack/kind.sh topology
+          workerNodeLabels: "node-role.kubernetes.io/worker=worker" # required by deploy node selectors
+          disableDefaultCni: false # use kindnet, no custom CNI needed
+          waitForPodsReady: true
+          installCalico: false # kindnet is sufficient
+
+      - name: Export kubeconfig for Makefile
+        run: |
+          mkdir -p bin
+          kind export kubeconfig --name frr-k8s --kubeconfig bin/kubeconfig
+
       - name: Download frr8ks images
         uses: actions/download-artifact@v4
         with:
@@ -215,6 +234,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install linux-modules-extra-$(uname -r) python3-pip arping ndisc6
+
+      # Cluster creation is handled here by quick-k8s instead of inside the
+      # Makefile (hack/kind.sh). When `make deploy-helm` runs later,
+      # hack/kind.sh detects the existing cluster and exits early.
+      - name: Create KinD cluster
+        uses: palmsoftware/quick-k8s@v0.0.49
+        with:
+          numWorkerNodes: 2 # matches original hack/kind.sh topology
+          workerNodeLabels: "node-role.kubernetes.io/worker=worker" # required by deploy node selectors
+          disableDefaultCni: false # use kindnet, no custom CNI needed
+          waitForPodsReady: true
+          installCalico: false # kindnet is sufficient
+
+      - name: Export kubeconfig for Makefile
+        run: |
+          mkdir -p bin
+          kind export kubeconfig --name kind --kubeconfig bin/kubeconfig
 
       - name: Download frr-k8s images
         uses: actions/download-artifact@v4
