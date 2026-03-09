@@ -7,6 +7,16 @@ nameOverride: ""
 # -- String to override the default fully qualified app name.
 fullnameOverride: ""
 
+tls:
+  # -- Comma-separated list of TLS cipher suites. If empty, uses Go defaults. Only applies to TLS 1.2.
+  cipherSuites: ""
+  # -- Comma-separated list of numeric CurveID values (e.g. 29,4588). See https://pkg.go.dev/crypto/tls#CurveID. If empty, uses Go defaults.
+  curvePreferences: ""
+  # -- Minimum TLS version (VersionTLS12 or VersionTLS13). Defaults to VersionTLS13.
+  minVersion: ""
+  # -- The name of the secret to be mounted in the pods to provide TLS certificates for metrics endpoints. If not present, a self-signed certificate is auto-generated.
+  metricsTLSSecret: ""
+
 rbac:
   # -- Specifies whether to install and use RBAC rules.
   create: true
@@ -23,17 +33,8 @@ prometheus:
   # -- Add Prometheus metric auto-collection annotations to pods.
   scrapeAnnotations: false
 
-  # -- Bind address frr-k8s will use for metrics.
-  metricsBindAddress: 127.0.0.1
-
-  # -- Port frr-k8s will listen on for metrics.
-  metricsPort: 7572
-
-  # -- If set, enables rbac proxy on frr-k8s to expose the metrics via TLS.
+  # -- Port frr-k8s will listen on for secure metrics.
   secureMetricsPort: 9140
-
-  # -- The name of the secret to be mounted in the frr-k8s pod to expose metrics securely. If not present, a self-signed certificate will be used.
-  metricsTLSSecret: ""
 
   # -- Give Prometheus permission to scrape metallb's namespace.
   rbacPrometheus: false
@@ -43,15 +44,6 @@ prometheus:
 
   # -- The namespace where Prometheus is deployed. Required when ".Values.prometheus.rbacPrometheus == true" and "prometheus.serviceMonitor.enabled=true".
   namespace: ""
-
-  # the image to be used for the kuberbacproxy container
-  rbacProxy:
-    # -- The kube-rbac-proxy image repository.
-    repository: registry.k8s.io/kubebuilder/kube-rbac-proxy
-    # -- The kube-rbac-proxy image tag.
-    tag: v0.12.0
-    # -- The kube-rbac-proxy image pull policy.
-    pullPolicy:
 
   # Prometheus Operator ServiceMonitors.
   serviceMonitor:
