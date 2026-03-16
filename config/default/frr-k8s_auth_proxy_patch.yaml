@@ -31,7 +31,7 @@ spec:
           capabilities:
             drop:
               - "ALL"
-        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
+        image: registry.k8s.io/kubebuilder/kube-rbac-proxy:v0.13.1
         args:
         - "--secure-listen-address=0.0.0.0:9140"
         - "--upstream=http://127.0.0.1:7572/"
@@ -54,7 +54,7 @@ spec:
         - --upstream=http://127.0.0.1:7573/
         - --logtostderr=true
         - --v=0
-        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
+        image: registry.k8s.io/kubebuilder/kube-rbac-proxy:v0.13.1
         ports:
         - containerPort: 9141
           name: frrmetricshttps
