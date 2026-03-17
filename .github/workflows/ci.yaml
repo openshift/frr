@@ -64,6 +64,9 @@ jobs:
       - name: Helm doc generate
         uses: docker://jnorwood/helm-docs:v1.10.0
 
+      - name: Check helm docs comments
+        run: make verify-helm-docs-comments
+
       - name: Check if docs are different
         run: make checkuncommitted
 
