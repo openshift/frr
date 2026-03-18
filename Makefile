@@ -291,8 +291,16 @@ generate-all-in-one: manifests kustomize ## Create manifests
 	$(KUSTOMIZE) build config/prometheus > config/all-in-one/frr-k8s-prometheus.yaml
 
 .PHONY: helm-docs
-helm-docs:
+helm-docs: ## Generate helm documentation
 	docker run --rm -v $$(pwd):/app -w /app jnorwood/helm-docs:$(HELM_DOCS_VERSION) helm-docs
+
+.PHONY: verify-helm-docs-comments
+verify-helm-docs-comments: ## Check that all documented helm values have comments
+	@if grep -n -E '\|\s*\|\s*$$' charts/frr-k8s/README.md; then \
+	  echo "Error: Found helm values with empty descriptions in README.md"; \
+	  echo "Please add documentation comments for all helm values int charts/frr-k8s/values.yaml"; \
+	  exit 1; \
+	fi
 
 .PHONY: api-docs
 api-docs: crd-ref-docs
