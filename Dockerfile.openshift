@@ -48,13 +48,20 @@ COPY --from=frrk8s-builder /frr-k8s/cmd/status/frr-status /
 
 ENV PYTHONDONTWRITEBYTECODE yes
 
-RUN INSTALL_PKGS=" \
-	tcpdump libpcap \
-	iproute iputils strace socat \
-	frr \
-	python3 \
-	podman-catatonit" && \
-	yum install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False $INSTALL_PKGS
+# Attempt to instasll frr10, falback to frr (v8)
+RUN if yum install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False frr10 >/dev/null 2>&1; then FRR_PKG="frr10"; else FRR_PKG="frr"; fi && \
+  INSTALL_PKGS="\
+  tcpdump \
+  libpcap \
+  iproute \
+  iputils \
+  strace \
+  socat \
+  $FRR_PKG \
+  python3 \
+  podman-catatonit \
+  " && \
+  yum install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False $INSTALL_PKGS
 
 RUN dnf -y update && yum clean all && rm -rf /var/cache/yum/* && rm -rf /var/cache/yum
 
