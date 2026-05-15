@@ -4,7 +4,10 @@ package frr
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"hash/crc32"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -32,10 +35,11 @@ type Status struct {
 }
 
 type FRR struct {
-	reloadConfig    chan reloadEvent
-	logLevel        string
-	Status          Status
-	onStatusChanged StatusChanged
+	reloadConfig     chan reloadEvent
+	logLevel         string
+	Status           Status
+	onStatusChanged  StatusChanged
+	fallbackRouterID string
 	sync.Mutex
 }
 
@@ -54,14 +58,46 @@ func (f *FRR) ApplyConfig(config *Config) error {
 	// TODO add internal wrapper
 	config.Loglevel = f.logLevel
 	config.Hostname = hostname
+	if f.fallbackRouterID != "" {
+		for _, r := range config.Routers {
+			if r.RouterID == "" {
+				r.RouterID = f.fallbackRouterID
+			}
+		}
+	}
 	f.reloadConfig <- reloadEvent{config: config}
 	return nil
+}
+
+var netInterfaceAddrs = net.InterfaceAddrs
+
+func hasIPv4Address() bool {
+	addrs, err := netInterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func hashRouterID() (string, error) {
+	hostname, err := osHostname()
+	if err != nil {
+		return "", err
+	}
+	b := make([]byte, 4)
+	binary.LittleEndian.PutUint32(b, crc32.ChecksumIEEE([]byte(hostname)))
+	return net.IP(b).String(), nil
 }
 
 var debounceTimeout = 3 * time.Second
 var failureTimeout = time.Second * 5
 
-func NewFRR(ctx context.Context, onStatusChanged StatusChanged, logger log.Logger, logLevel logging.Level) *FRR {
+func NewFRR(ctx context.Context, onStatusChanged StatusChanged, logger log.Logger, logLevel logging.Level) (*FRR, error) {
 	res := &FRR{
 		reloadConfig:    make(chan reloadEvent),
 		logLevel:        logLevelToFRR(logLevel),
@@ -71,9 +107,19 @@ func NewFRR(ctx context.Context, onStatusChanged StatusChanged, logger log.Logge
 		return generateAndReloadConfigFile(config, logger)
 	}
 
+	// On IPv6-only nodes, FRR defaults router-id to 0.0.0.0 (RFC 6286 violation).
+	if !hasIPv4Address() {
+		routerID, err := hashRouterID()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate fallback router-id: %w", err)
+		}
+		res.fallbackRouterID = routerID
+		level.Info(logger).Log("op", "startup", "msg", "no IPv4 address found, using fallback router-id", "routerID", res.fallbackRouterID)
+	}
+
 	debouncer(ctx, reload, res.reloadConfig, debounceTimeout, failureTimeout, logger)
 	res.pollStatus(ctx, logger)
-	return res
+	return res, nil
 }
 
 func (f *FRR) GetStatus() Status {
