@@ -140,7 +140,11 @@ func startFRRControllers(ctx context.Context, mgr manager.Manager, params params
 	reloadStatus := func() {
 		reloadStatusChan <- controller.NewStateEvent()
 	}
-	frrInstance := frr.NewFRR(ctx, reloadStatus, logger, logging.Level(params.logLevel))
+	frrInstance, err := frr.NewFRR(ctx, reloadStatus, logger, logging.Level(params.logLevel))
+	if err != nil {
+		setupLog.Error(err, "failed to create FRR instance")
+		os.Exit(1)
+	}
 
 	alwaysBlock, err := parseCIDRs(params.alwaysBlockCIDRs)
 	if err != nil {
