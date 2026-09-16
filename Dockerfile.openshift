@@ -48,10 +48,16 @@ COPY --from=frrk8s-builder /frr-k8s/cmd/status/frr-status /
 
 ENV PYTHONDONTWRITEBYTECODE yes
 
-RUN INSTALL_PKGS=" \
+RUN source /etc/os-release && \
+	if echo "${VERSION_ID}" | grep -q '^10'; then \
+	  FRR_PKG="frr"; \
+	else \
+	  FRR_PKG="frr10"; \
+	fi && \
+	INSTALL_PKGS=" \
 	tcpdump libpcap \
 	iproute iputils strace socat \
-	frr10 \
+	${FRR_PKG} \
 	python3 \
 	podman-catatonit" && \
 	dnf install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False $INSTALL_PKGS && \
