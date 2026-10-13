@@ -1,0 +1,18 @@
+reviewers:
+  - cgoncalves
+  - fedepaol
+  - russellb
+  - dougbtv
+  - dcbw
+  - msherif1234
+  - oribon
+approvers:
+  - cgoncalves
+  - fedepaol
+  - russellb
+  - dougbtv
+  - dcbw
+  - msherif1234
+  - oribon
+component: "Networking"
+subcomponent: "frr"

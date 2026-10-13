@@ -1,0 +1,294 @@
+name: CI
+
+on:
+  merge_group:
+  pull_request:
+    paths-ignore:
+      - 'DCO'
+      - 'LICENSE'
+      - 'README.md'
+      - 'HOW_TO_RELEASE.md'
+      - 'RELEASE_NOTES.md'
+    branches:
+      - "main"
+      - "v**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-security-analysis:
+    runs-on: ubuntu-22.04
+    env:
+      GO111MODULE: on
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec@v2.22.3
+        with:
+          args: -exclude-dir e2etest -severity medium ./...
+
+      - name: Golang Vulncheck
+        uses: golang/govulncheck-action@v1.0.4
+        with:
+          go-version-file: go.mod
+
+  check-generated:
+    runs-on: ubuntu-22.04
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+      - name: Check Generated
+        run: |
+          make bumplicense
+          go mod tidy
+          pushd e2etests
+          go mod tidy
+          popd
+          make manifests
+          make generate
+          make generate-all-in-one
+          make api-docs
+          make checkuncommitted
+
+      - name: Helm doc generate
+        uses: docker://jnorwood/helm-docs:v1.10.0
+
+      - name: Check if docs are different
+        run: make checkuncommitted
+
+  commitlint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: wagoid/commitlint-github-action@v5
+
+  golangci:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+
+  unit-tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Unit Tests
+        run: |
+          make test
+
+  build-test-images:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: true
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v4
+      - name: Setup docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and export the image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          tags: quay.io/metallb/frr-k8s:main
+          file: Dockerfile
+          outputs: type=docker,dest=/tmp/frrk8s.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Upload frrk8s artifact
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 1
+          name: image-tar-frrk8s
+          path: /tmp/frrk8s.tar
+  e2e:
+    runs-on: ubuntu-22.04
+    needs:
+      - unit-tests
+      - build-test-images
+      - commitlint
+    strategy:
+      fail-fast: false
+      matrix:
+        ip-family: [ipv4, ipv6, dual]
+        deployment: [manifests, helm]
+        exclude:
+        - ip-family: ipv6
+          deployment: helm
+        - ip-family: dual
+          deployment: helm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Install kernel modules
+        run: |
+          sudo apt-get update
+          sudo apt-get install linux-modules-extra-$(uname -r)
+
+      - name: Download frr8ks images
+        uses: actions/download-artifact@v4
+        with:
+          path: image
+
+      - name: Load image
+        working-directory: image
+        run: |
+          docker load -i image-tar-frrk8s/frrk8s.tar
+
+      - name: Deploy on kind
+        run: |
+          MAKE_RULE="deploy-with-prometheus"
+          if [ ${{ matrix.deployment }} = "helm" ]; then MAKE_RULE="deploy-helm"; fi
+          LOGLEVEL=debug IP_FAMILY="${{ matrix.ip-family }}" make $MAKE_RULE
+          mkdir -p /tmp/kind_logs/
+
+      - name: E2E
+        run: |
+          SKIP="'echo mode enabled'"
+          if [ "${{ matrix.ip-family }}" == "ipv4" ]; then SKIP="$SKIP\|IPV6\|DUALSTACK"; fi
+          if [ "${{ matrix.ip-family }}" == "dual" ]; then SKIP="$SKIP\|IPV6"; fi
+          if [ "${{ matrix.ip-family }}" == "ipv6" ]; then SKIP="$SKIP\|IPV4\|DUALSTACK"; fi
+          SKIP="$SKIP\|Leaked.*advertising" # TODO fixed by frr 10.0, remove this when https://github.com/metallb/frr-k8s/issues/165 is fixed
+          GINKGO_ARGS="--skip $SKIP" TEST_ARGS="--report-path=/tmp/kind_logs" make e2etests
+
+      - name: Export kind logs
+        if: ${{ failure() }}
+        run:
+          make kind-export-logs
+
+      - name: Collect Logs
+        if: ${{ failure() }}
+        uses: ./.github/workflows/composite/collectlogs
+        with:
+          artifact-name: kind-logs-${{ matrix.ip-family }}-${{ matrix.deployment }}
+
+  metallb_e2e:
+    runs-on: ubuntu-22.04
+    needs:
+      - unit-tests
+      - build-test-images
+      - commitlint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install linux-modules-extra-$(uname -r) python3-pip arping ndisc6
+
+      - name: Download frr-k8s images
+        uses: actions/download-artifact@v4
+        with:
+          path: image
+
+      - name: Load image
+        working-directory: image
+        run: |
+          docker load -i image-tar-frrk8s/frrk8s.tar
+
+      - name: Deploy frr-k8s
+        run: |
+          helm_args="\
+          --set prometheus.serviceMonitor.metricRelabelings[0].sourceLabels=\{__name__\} \
+          --set prometheus.serviceMonitor.metricRelabelings[0].regex=\"frrk8s_bgp_(.*)\" \
+          --set prometheus.serviceMonitor.metricRelabelings[0].targetLabel=\"__name__\" \
+          --set prometheus.serviceMonitor.metricRelabelings[0].replacement=\"metallb_bgp_\\\$\$1\" \
+          --set prometheus.serviceMonitor.metricRelabelings[1].sourceLabels=\{__name__\} \
+          --set prometheus.serviceMonitor.metricRelabelings[1].regex=\"frrk8s_bfd_(.*)\" \
+          --set prometheus.serviceMonitor.metricRelabelings[1].targetLabel=\"__name__\" \
+          --set prometheus.serviceMonitor.metricRelabelings[1].replacement=\"metallb_bfd_\\\$\$1\" \
+          "
+          KIND_CLUSTER_NAME="kind" NAMESPACE=metallb-system LOGLEVEL=debug IP_FAMILY="ipv4" HELM_ARGS=${helm_args} make "deploy-helm"
+          mkdir -p /tmp/kind_logs/
+
+      - name: Checkout MetalLB
+        uses: actions/checkout@v4
+        with:
+          repository: metallb/metallb
+          path: metallb
+          ref: "main"
+
+      - name: Deploy MetalLB
+        run: |
+          export KUBECONFIG=${GITHUB_WORKSPACE}/bin/kubeconfig
+          cd ${GITHUB_WORKSPACE}/metallb/charts/metallb
+          # remove the frr-k8s dependencies
+          yq e --inplace '.dependencies |= [{"name": "crds", "condition": "crds.enabled", "version": "0.0.0"}]' Chart.yaml
+          rm -f charts/frr-k8s-*
+          # install with metrics enabled
+          helm_args="\
+          --namespace metallb-system \
+          --set speaker.logLevel=debug --set controller.logLevel=debug \
+          --set frrk8s.enabled=true --set speaker.frr.enabled=false \
+          --set controller.image.tag=main --set speaker.image.tag=main \
+          --set prometheus.serviceMonitor.enabled=true --set prometheus.secureMetricsPort=9120 \
+          --set prometheus.serviceAccount=prometheus-k8s --set prometheus.namespace=monitoring \
+          --set networkpolicies.enabled=true --set networkpolicies.defaultDeny=true \
+          "
+          helm install metallb ${helm_args} .
+          kubectl wait -n metallb-system --for=condition=Ready pod -l "app.kubernetes.io/name=metallb" --timeout=300s
+
+      - name: MetalLB E2E Tests
+        run: |
+          export KUBECONFIG=${GITHUB_WORKSPACE}/bin/kubeconfig
+          sudo pip3 install -r ${GITHUB_WORKSPACE}/metallb/dev-env/requirements.txt
+          GOBIN=/home/runner/.local/bin go install -v github.com/onsi/ginkgo/v2/ginkgo@v2.13.0
+
+          docker network create --ipv6 --subnet fc00:f853:ccd:e791::/64 -d bridge network2
+          KIND_NODES=$(kind get nodes)
+          for n in $KIND_NODES; do
+            docker network connect network2 "$n"
+          done
+
+          export SPEAKER_SELECTOR="app.kubernetes.io/component=speaker"
+          export CONTROLLER_SELECTOR="app.kubernetes.io/component=controller"
+          cd ${GITHUB_WORKSPACE}/metallb
+
+          env "PATH=$PATH" inv remove-lb-exclusion-from-nodes
+          sudo -E env "PATH=$PATH" inv e2etest -b "frr-k8s" --kubeconfig ${KUBECONFIG} --with-vrf --skip "L2|IPV6|DUALSTACK|FRR-MODE" -e /tmp/kind_logs
+
+      - name: Collect Logs
+        if: ${{ failure() }}
+        uses: ./.github/workflows/composite/collectlogs
+        with:
+          artifact-name: kind-logs-metallb-logs

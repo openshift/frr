@@ -1,0 +1,79 @@
+#
+# This is the OpenShift FRR network image.
+#
+# The standard name for this image is frr
+#
+
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.26-openshift-4.22 AS frrk8s-builder
+WORKDIR /frr-k8s
+
+COPY .git/ .git/
+
+ADD . /frr-k8s
+
+WORKDIR /frr-k8s/cmd/metrics
+RUN CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-metrics
+WORKDIR /frr-k8s/cmd/status
+RUN CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-status
+
+WORKDIR /frr-k8s/cmd/frr-k8s-controller
+RUN export SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --verify 'HEAD^{commit}')}" && \
+      export GIT_BRANCH="${GIT_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}" && \
+      CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./frr-k8s \
+      -ldflags "-X frr-k8s/internal/version.gitCommit=${SOURCE_GIT_COMMIT} \
+      -X frr-k8s/internal/version.gitBranch=${GIT_BRANCH}"
+
+WORKDIR /frr-k8s/cmd/statuscleaner
+RUN export SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --verify 'HEAD^{commit}')}" && \
+      export GIT_BRANCH="${GIT_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}" && \
+      CGO_ENABLED=0 GO111MODULE=on go build -mod=vendor -o ./statuscleaner \
+      -ldflags "-X frr-k8s/internal/version.gitCommit=${SOURCE_GIT_COMMIT} \
+      -X frr-k8s/internal/version.gitBranch=${GIT_BRANCH}"
+
+
+# When running as non root and building in an environment that `umask` masks out
+# '+x' for others, it won't be possible to execute. Make sure all can execute,
+# just in case
+WORKDIR /frr-k8s/cmd/reloader
+RUN chmod a+x frr-reloader.sh
+
+FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
+USER root
+
+COPY --from=frrk8s-builder /frr-k8s/cmd/frr-k8s-controller/frr-k8s /
+COPY --from=frrk8s-builder /frr-k8s/cmd/statuscleaner/statuscleaner /
+COPY --from=frrk8s-builder /frr-k8s/cmd/reloader/frr-reloader.sh /
+COPY --from=frrk8s-builder /frr-k8s/cmd/metrics/frr-metrics /
+COPY --from=frrk8s-builder /frr-k8s/cmd/status/frr-status /
+
+ENV PYTHONDONTWRITEBYTECODE yes
+
+RUN INSTALL_PKGS=" \
+	tcpdump libpcap \
+	iproute iputils strace socat \
+	frr10 \
+	python3 \
+	podman-catatonit" && \
+	dnf install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False $INSTALL_PKGS && \
+	dnf clean all && rm -rf /var/cache/yum
+
+# frr.sh is the entry point. This script examines environment
+# variables to direct operation and configure ovn
+ADD frr.sh /root/
+ADD daemons /etc/frr
+ADD frr.conf /etc/frr
+ADD vtysh.conf /etc/frr
+
+RUN chown frr:frr /etc/frr/daemons /etc/frr/frr.conf
+
+RUN ln -s /usr/libexec/podman/catatonit /sbin/tini
+RUN usermod -a -G frrvty frr
+
+COPY docker-start /usr/libexec/frr/docker-start
+RUN cp -r /usr/libexec/frr /usr/lib/ # required because of the different path on rhel
+
+WORKDIR /root
+ENTRYPOINT ["/sbin/tini", "--"]
+
+COPY docker-start /usr/lib/frr/docker-start
+CMD ["/usr/lib/frr/docker-start"]
