@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/lru"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -38,13 +39,21 @@ const (
 type FRRConfigValidator struct {
 	ClusterResourceNamespace string
 
-	client  client.Client
-	decoder admission.Decoder
+	decoder     admission.Decoder
+	cacheSynced func() bool
 }
 
 func (v *FRRConfigValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	v.client = mgr.GetClient()
 	v.decoder = admission.NewDecoder(mgr.GetScheme())
+	nodes, err := mgr.GetCache().GetInformer(context.Background(), &corev1.Node{}, cache.BlockUntilSynced(false))
+	if err != nil {
+		return err
+	}
+	configs, err := mgr.GetCache().GetInformer(context.Background(), &v1beta1.FRRConfiguration{}, cache.BlockUntilSynced(false))
+	if err != nil {
+		return err
+	}
+	v.cacheSynced = func() bool { return nodes.HasSynced() && configs.HasSynced() }
 
 	mgr.GetWebhookServer().Register(
 		frrConfigWebhookPath,
@@ -52,7 +61,7 @@ func (v *FRRConfigValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 	mgr.GetWebhookServer().Register(
 		healthPath,
-		&healthHandler{})
+		&healthHandler{cacheSynced: v.cacheSynced})
 
 	return nil
 }
@@ -60,6 +69,9 @@ func (v *FRRConfigValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:webhook:verbs=create;update,path=/validate-frrk8s-metallb-io-v1beta1-frrconfiguration,mutating=false,failurePolicy=fail,groups=frrk8s.metallb.io,resources=frrconfigurations,versions=v1beta1,name=frrconfigurationsvalidationwebhook.metallb.io,sideEffects=None,admissionReviewVersions=v1
 
 func (v *FRRConfigValidator) Handle(ctx context.Context, req admission.Request) (resp admission.Response) {
+	if !v.cacheSynced() {
+		return admission.Errored(http.StatusServiceUnavailable, errors.New("webhook caches have not synced"))
+	}
 	var config v1beta1.FRRConfiguration
 	var oldConfig v1beta1.FRRConfiguration
 	if req.Operation == v1.Delete {
@@ -101,11 +113,17 @@ func (v *FRRConfigValidator) Handle(ctx context.Context, req admission.Request) 
 	return admission.Allowed("").WithWarnings(warnings...)
 }
 
-type healthHandler struct{}
+type healthHandler struct {
+	cacheSynced func() bool
+}
 
 func (h *healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.cacheSynced() {
+		http.Error(w, "Webhook caches have not synced", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -163,54 +181,8 @@ func validateConfig(frrConfig *v1beta1.FRRConfiguration) ([]string, error) {
 		return warnings, err
 	}
 
-	matchingNodes := []nodeAndConfigs{}
-	for _, n := range existingNodes {
-		if selector.Matches(labels.Set(n.Labels)) {
-			matchingNodes = append(matchingNodes, nodeAndConfigs{
-				name:   n.Name,
-				labels: n.Labels,
-				cfgs:   &v1beta1.FRRConfigurationList{},
-			})
-		}
-	}
-
-	for _, n := range matchingNodes {
-		for _, cfg := range existingFRRConfigurations.Items {
-			nodeSelector := cfg.Spec.NodeSelector
-			selector, err := getCachedSelector(nodeSelector)
-			if err != nil {
-				// shouldn't happen as it would have been denied earlier, just in case.
-				continue
-			}
-
-			if cfg.Name == frrConfig.Name {
-				// shouldn't happen for creates as it would be considered an update, and in any case
-				// we add the updated one at the end because for updates we don't want the old and updated resources
-				// to be considered together.
-				for _, rold := range cfg.Spec.BGP.Routers {
-					for _, rnew := range frrConfig.Spec.BGP.Routers {
-						if rold.VRF != rnew.VRF {
-							continue
-						}
-						for _, nold := range rold.Neighbors {
-							for _, nnew := range rnew.Neighbors {
-								if nold.ASN == nnew.ASN && nold.Address == nnew.Address && nold.EnableGracefulRestart != nnew.EnableGracefulRestart {
-									warnings = append(warnings, "Graceful restart configuration changed, it will be available on the next restart")
-									continue
-								}
-							}
-						}
-					}
-				}
-				continue
-			}
-
-			if selector.Matches(labels.Set(n.labels)) {
-				n.cfgs.Items = append(n.cfgs.Items, cfg)
-			}
-		}
-		n.cfgs.Items = append(n.cfgs.Items, *frrConfig)
-	}
+	matchingNodes, groupingWarnings := configsPerMatchingNode(frrConfig, selector, existingNodes, existingFRRConfigurations)
+	warnings = append(warnings, groupingWarnings...)
 
 	for _, n := range matchingNodes {
 		err := Validate(n.cfgs)
@@ -222,9 +194,85 @@ func validateConfig(frrConfig *v1beta1.FRRConfiguration) ([]string, error) {
 	return warnings, nil
 }
 
+// configsPerMatchingNode returns, for every node selected by frrConfig, the
+// existing configurations that apply to that node followed by frrConfig itself,
+// plus any warnings implied by replacing an existing configuration of the same
+// name.
+func configsPerMatchingNode(frrConfig *v1beta1.FRRConfiguration, nodeSelector labels.Selector, existingNodes []corev1.Node, existingConfigs *v1beta1.FRRConfigurationList) ([]nodeAndConfigs, []string) {
+	var warnings []string
+
+	matchingNodes := make([]nodeAndConfigs, 0, len(existingNodes))
+	for _, n := range existingNodes {
+		if nodeSelector.Matches(labels.Set(n.Labels)) {
+			matchingNodes = append(matchingNodes, nodeAndConfigs{
+				name:   n.Name,
+				labels: n.Labels,
+				cfgs:   &v1beta1.FRRConfigurationList{},
+			})
+		}
+	}
+
+	// Resolve each existing config's node selector once and fan it out over the
+	// nodes it matches. Resolving per node re-derives the selector for every
+	// (node, config) pair, so a config selecting every node multiplies that work
+	// by the node count on every admission.
+	for _, cfg := range existingConfigs.Items {
+		if cfg.Name == frrConfig.Name {
+			// shouldn't happen for creates as it would be considered an update, and in any case
+			// we add the updated one at the end because for updates we don't want the old and updated resources
+			// to be considered together.
+			if len(matchingNodes) > 0 {
+				warnings = append(warnings, gracefulRestartChangeWarnings(cfg, *frrConfig)...)
+			}
+			continue
+		}
+
+		cfgSelector, err := getCachedSelector(cfg.Spec.NodeSelector)
+		if err != nil {
+			// shouldn't happen as it would have been denied earlier, just in case.
+			continue
+		}
+
+		for i := range matchingNodes {
+			if cfgSelector.Matches(labels.Set(matchingNodes[i].labels)) {
+				matchingNodes[i].cfgs.Items = append(matchingNodes[i].cfgs.Items, cfg)
+			}
+		}
+	}
+
+	for i := range matchingNodes {
+		matchingNodes[i].cfgs.Items = append(matchingNodes[i].cfgs.Items, *frrConfig)
+	}
+
+	return matchingNodes, warnings
+}
+
+// gracefulRestartChangeWarnings reports a graceful restart change that only
+// takes effect once FRR is restarted.
+func gracefulRestartChangeWarnings(oldCfg, newCfg v1beta1.FRRConfiguration) []string {
+	var warnings []string
+	for _, rold := range oldCfg.Spec.BGP.Routers {
+		for _, rnew := range newCfg.Spec.BGP.Routers {
+			if rold.VRF != rnew.VRF {
+				continue
+			}
+			for _, nold := range rold.Neighbors {
+				for _, nnew := range rnew.Neighbors {
+					if nold.ASN == nnew.ASN && nold.Address == nnew.Address && nold.EnableGracefulRestart != nnew.EnableGracefulRestart {
+						warnings = append(warnings, "Graceful restart configuration changed, it will be available on the next restart")
+					}
+				}
+			}
+		}
+	}
+	return warnings
+}
+
 var getFRRConfigurations = func() (*v1beta1.FRRConfigurationList, error) {
 	frrConfigurationsList := &v1beta1.FRRConfigurationList{}
-	err := WebhookClient.List(context.Background(), frrConfigurationsList)
+	// Treat informer objects as immutable. Validate deep-copies the selected
+	// configurations before resetting secrets or merging routing state.
+	err := WebhookClient.List(context.Background(), frrConfigurationsList, client.UnsafeDisableDeepCopy)
 	if err != nil {
 		return nil, errors.Join(err, errors.New("failed to get existing FRRConfiguration objects"))
 	}
@@ -233,7 +281,7 @@ var getFRRConfigurations = func() (*v1beta1.FRRConfigurationList, error) {
 
 var getNodes = func() ([]corev1.Node, error) {
 	nodesList := &corev1.NodeList{}
-	err := WebhookClient.List(context.Background(), nodesList)
+	err := WebhookClient.List(context.Background(), nodesList, client.UnsafeDisableDeepCopy)
 	if err != nil {
 		return nil, errors.Join(err, errors.New("failed to get existing Node objects"))
 	}
