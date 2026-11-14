@@ -4,11 +4,9 @@ package webhooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
-	"sync"
-
-	"errors"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -16,18 +14,16 @@ import (
 	v1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/utils/lru"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var (
-	Logger        log.Logger
-	WebhookClient client.Reader
-	Validate      func(resources ...client.ObjectList) error
+	Logger   log.Logger
+	Validate func(resources ...client.ObjectList) error
 )
 
 const (
@@ -38,13 +34,24 @@ const (
 type FRRConfigValidator struct {
 	ClusterResourceNamespace string
 
-	client  client.Client
-	decoder admission.Decoder
+	decoder     admission.Decoder
+	cacheSynced func() bool
+	index       *nodeConfigIndex
 }
 
 func (v *FRRConfigValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	v.client = mgr.GetClient()
 	v.decoder = admission.NewDecoder(mgr.GetScheme())
+	nodes, err := mgr.GetCache().GetInformer(context.Background(), &corev1.Node{}, cache.BlockUntilSynced(false))
+	if err != nil {
+		return err
+	}
+	configs, err := mgr.GetCache().GetInformer(context.Background(), &v1beta1.FRRConfiguration{}, cache.BlockUntilSynced(false))
+	if err != nil {
+		return err
+	}
+	if err := v.registerIndexHandlers(nodes, configs); err != nil {
+		return err
+	}
 
 	mgr.GetWebhookServer().Register(
 		frrConfigWebhookPath,
@@ -52,7 +59,7 @@ func (v *FRRConfigValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 	mgr.GetWebhookServer().Register(
 		healthPath,
-		&healthHandler{})
+		&healthHandler{cacheSynced: v.cacheSynced})
 
 	return nil
 }
@@ -60,6 +67,9 @@ func (v *FRRConfigValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:webhook:verbs=create;update,path=/validate-frrk8s-metallb-io-v1beta1-frrconfiguration,mutating=false,failurePolicy=fail,groups=frrk8s.metallb.io,resources=frrconfigurations,versions=v1beta1,name=frrconfigurationsvalidationwebhook.metallb.io,sideEffects=None,admissionReviewVersions=v1
 
 func (v *FRRConfigValidator) Handle(ctx context.Context, req admission.Request) (resp admission.Response) {
+	if !v.cacheSynced() {
+		return admission.Errored(http.StatusServiceUnavailable, errors.New("webhook caches have not synced"))
+	}
 	var config v1beta1.FRRConfiguration
 	var oldConfig v1beta1.FRRConfiguration
 	if req.Operation == v1.Delete {
@@ -80,13 +90,13 @@ func (v *FRRConfigValidator) Handle(ctx context.Context, req admission.Request) 
 	var warnings []string
 	switch req.Operation {
 	case v1.Create:
-		w, err := validateConfigCreate(&config)
+		w, err := v.validateConfigCreate(&config)
 		if err != nil {
 			return admission.Denied(err.Error())
 		}
 		warnings = w
 	case v1.Update:
-		w, err := validateConfigUpdate(&config)
+		w, err := v.validateConfigUpdate(&config)
 		if err != nil {
 			return admission.Denied(err.Error())
 		}
@@ -101,11 +111,17 @@ func (v *FRRConfigValidator) Handle(ctx context.Context, req admission.Request) 
 	return admission.Allowed("").WithWarnings(warnings...)
 }
 
-type healthHandler struct{}
+type healthHandler struct {
+	cacheSynced func() bool
+}
 
 func (h *healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.cacheSynced() {
+		http.Error(w, "Webhook caches have not synced", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -118,99 +134,42 @@ func (h *healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type nodeAndConfigs struct {
-	name   string
-	labels map[string]string
-	cfgs   *v1beta1.FRRConfigurationList
+	name string
+	cfgs *v1beta1.FRRConfigurationList
 }
 
-func validateConfigCreate(frrConfig *v1beta1.FRRConfiguration) ([]string, error) {
+func (v *FRRConfigValidator) validateConfigCreate(frrConfig *v1beta1.FRRConfiguration) ([]string, error) {
 	level.Debug(Logger).Log("webhook", "frrconfiguration", "action", "create", "name", frrConfig.Name, "namespace", frrConfig.Namespace)
 	defer level.Debug(Logger).Log("webhook", "frrconfiguration", "action", "end create", "name", frrConfig.Name, "namespace", frrConfig.Namespace)
 
-	return validateConfig(frrConfig)
+	return v.validateConfig(frrConfig)
 }
 
-func validateConfigUpdate(frrConfig *v1beta1.FRRConfiguration) ([]string, error) {
+func (v *FRRConfigValidator) validateConfigUpdate(frrConfig *v1beta1.FRRConfiguration) ([]string, error) {
 	level.Debug(Logger).Log("webhook", "frrconfiguration", "action", "update", "name", frrConfig.Name, "namespace", frrConfig.Namespace)
 	defer level.Debug(Logger).Log("webhook", "frrconfiguration", "action", "end update", "name", frrConfig.Name, "namespace", frrConfig.Namespace)
 
-	return validateConfig(frrConfig)
+	return v.validateConfig(frrConfig)
 }
 
 func validateConfigDelete(_ *v1beta1.FRRConfiguration) ([]string, error) {
 	return []string{}, nil
 }
 
-func validateConfig(frrConfig *v1beta1.FRRConfiguration) ([]string, error) {
+func (v *FRRConfigValidator) validateConfig(frrConfig *v1beta1.FRRConfiguration) ([]string, error) {
 	var warnings []string
 
-	selector, err := getCachedSelector(frrConfig.Spec.NodeSelector)
+	selector, err := metav1.LabelSelectorAsSelector(&frrConfig.Spec.NodeSelector)
 	if err != nil {
 		return warnings, errors.Join(err, errors.New("resource contains an invalid NodeSelector"))
-	}
-
-	existingNodes, err := getNodes()
-	if err != nil {
-		return warnings, err
 	}
 
 	if containsDisableMP(frrConfig.Spec.BGP.Routers) {
 		warnings = append(warnings, "disableMP is deprecated, is ignored and will be removed in a future release")
 	}
 
-	existingFRRConfigurations, err := getFRRConfigurations()
-	if err != nil {
-		return warnings, err
-	}
-
-	matchingNodes := []nodeAndConfigs{}
-	for _, n := range existingNodes {
-		if selector.Matches(labels.Set(n.Labels)) {
-			matchingNodes = append(matchingNodes, nodeAndConfigs{
-				name:   n.Name,
-				labels: n.Labels,
-				cfgs:   &v1beta1.FRRConfigurationList{},
-			})
-		}
-	}
-
-	for _, n := range matchingNodes {
-		for _, cfg := range existingFRRConfigurations.Items {
-			nodeSelector := cfg.Spec.NodeSelector
-			selector, err := getCachedSelector(nodeSelector)
-			if err != nil {
-				// shouldn't happen as it would have been denied earlier, just in case.
-				continue
-			}
-
-			if cfg.Name == frrConfig.Name {
-				// shouldn't happen for creates as it would be considered an update, and in any case
-				// we add the updated one at the end because for updates we don't want the old and updated resources
-				// to be considered together.
-				for _, rold := range cfg.Spec.BGP.Routers {
-					for _, rnew := range frrConfig.Spec.BGP.Routers {
-						if rold.VRF != rnew.VRF {
-							continue
-						}
-						for _, nold := range rold.Neighbors {
-							for _, nnew := range rnew.Neighbors {
-								if nold.ASN == nnew.ASN && nold.Address == nnew.Address && nold.EnableGracefulRestart != nnew.EnableGracefulRestart {
-									warnings = append(warnings, "Graceful restart configuration changed, it will be available on the next restart")
-									continue
-								}
-							}
-						}
-					}
-				}
-				continue
-			}
-
-			if selector.Matches(labels.Set(n.labels)) {
-				n.cfgs.Items = append(n.cfgs.Items, cfg)
-			}
-		}
-		n.cfgs.Items = append(n.cfgs.Items, *frrConfig)
-	}
+	matchingNodes, groupingWarnings := v.index.configsPerMatchingNode(frrConfig, selector)
+	warnings = append(warnings, groupingWarnings...)
 
 	for _, n := range matchingNodes {
 		err := Validate(n.cfgs)
@@ -222,22 +181,25 @@ func validateConfig(frrConfig *v1beta1.FRRConfiguration) ([]string, error) {
 	return warnings, nil
 }
 
-var getFRRConfigurations = func() (*v1beta1.FRRConfigurationList, error) {
-	frrConfigurationsList := &v1beta1.FRRConfigurationList{}
-	err := WebhookClient.List(context.Background(), frrConfigurationsList)
-	if err != nil {
-		return nil, errors.Join(err, errors.New("failed to get existing FRRConfiguration objects"))
+// gracefulRestartChangeWarnings reports a graceful restart change that only
+// takes effect once FRR is restarted.
+func gracefulRestartChangeWarnings(oldCfg, newCfg v1beta1.FRRConfiguration) []string {
+	var warnings []string
+	for _, rold := range oldCfg.Spec.BGP.Routers {
+		for _, rnew := range newCfg.Spec.BGP.Routers {
+			if rold.VRF != rnew.VRF {
+				continue
+			}
+			for _, nold := range rold.Neighbors {
+				for _, nnew := range rnew.Neighbors {
+					if nold.ASN == nnew.ASN && nold.Address == nnew.Address && nold.EnableGracefulRestart != nnew.EnableGracefulRestart {
+						warnings = append(warnings, "Graceful restart configuration changed, it will be available on the next restart")
+					}
+				}
+			}
+		}
 	}
-	return frrConfigurationsList, nil
-}
-
-var getNodes = func() ([]corev1.Node, error) {
-	nodesList := &corev1.NodeList{}
-	err := WebhookClient.List(context.Background(), nodesList)
-	if err != nil {
-		return nil, errors.Join(err, errors.New("failed to get existing Node objects"))
-	}
-	return nodesList.Items, nil
+	return warnings
 }
 
 func containsDisableMP(routers []v1beta1.Router) bool {
@@ -250,31 +212,4 @@ func containsDisableMP(routers []v1beta1.Router) bool {
 		}
 	}
 	return false
-}
-
-var (
-	selectorCache = lru.New(300)
-	selectorMutex sync.RWMutex
-)
-
-func getCachedSelector(nodeSelector metav1.LabelSelector) (labels.Selector, error) {
-	key := fmt.Sprintf("%v-%v", nodeSelector.MatchLabels, nodeSelector.MatchExpressions)
-
-	selectorMutex.RLock()
-	if cached, ok := selectorCache.Get(key); ok {
-		selectorMutex.RUnlock()
-		return cached.(labels.Selector), nil
-	}
-	selectorMutex.RUnlock()
-
-	selector, err := metav1.LabelSelectorAsSelector(&nodeSelector)
-	if err != nil {
-		return nil, err
-	}
-
-	selectorMutex.Lock()
-	selectorCache.Add(key, selector)
-	selectorMutex.Unlock()
-
-	return selector, nil
 }

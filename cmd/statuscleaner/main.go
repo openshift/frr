@@ -294,7 +294,6 @@ func setupWebhook(mgr manager.Manager) {
 	level.Info(logger).Log("op", "startup", "action", "webhooks enabled")
 
 	webhooks.Logger = logger
-	webhooks.WebhookClient = mgr.GetAPIReader()
 	webhooks.Validate = controller.Validate
 
 	if err := (&webhooks.FRRConfigValidator{}).SetupWebhookWithManager(mgr); err != nil {

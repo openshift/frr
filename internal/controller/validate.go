@@ -26,7 +26,11 @@ func Validate(resources ...client.ObjectList) error {
 
 	for _, list := range resources {
 		if l, ok := list.(*v1beta1.FRRConfigurationList); ok {
-			clusterResources.FRRConfigs = append(clusterResources.FRRConfigs, l.Items...)
+			// Validation resets secrets and may merge nested routing state.
+			// Copy only the selected configurations, leaving informer and caller objects immutable.
+			for i := range l.Items {
+				clusterResources.FRRConfigs = append(clusterResources.FRRConfigs, *l.Items[i].DeepCopy())
+			}
 		}
 	}
 	resetSecrets(clusterResources.FRRConfigs)
