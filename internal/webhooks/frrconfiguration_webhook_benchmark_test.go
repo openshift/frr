@@ -14,26 +14,30 @@ import (
 )
 
 func BenchmarkValidateConfig(b *testing.B) {
+	for _, perNode := range []int{0, 20, 200} {
+		for _, broad := range []bool{false, true} {
+			b.Run(fmt.Sprintf("unrelated=%d/broad=%t", 99*perNode, broad), func(b *testing.B) { benchmarkValidateConfig(b, perNode, broad) })
+		}
+	}
+}
+
+func benchmarkValidateConfig(b *testing.B, unrelatedPerNode int, broad bool) {
 	nodes := generateNodes(100)
-	configs := generateFRRConfigurations(nodes, 20)
-	originalGetNodes := getNodes
-	originalGetFRRConfigurations := getFRRConfigurations
+	configs := generateFRRConfigurations(nodes[:1], 20)
+	unrelated := generateFRRConfigurations(nodes[1:], unrelatedPerNode)
+	for i := range unrelated {
+		unrelated[i].Name = "unrelated-" + unrelated[i].Name
+	}
+	configs = append(configs, unrelated...)
+	validator := &FRRConfigValidator{index: newNodeConfigIndex()}
+	for i := range nodes {
+		validator.index.upsertNode(&nodes[i])
+	}
+	for i := range configs {
+		validator.index.upsertConfig(&configs[i])
+	}
 	originalValidate := Validate
-
-	defer func() {
-		getNodes = originalGetNodes
-		getFRRConfigurations = originalGetFRRConfigurations
-		Validate = originalValidate
-	}()
-
-	getNodes = func() ([]corev1.Node, error) {
-		return nodes, nil
-	}
-
-	getFRRConfigurations = func() (*v1beta1.FRRConfigurationList, error) {
-		return &v1beta1.FRRConfigurationList{Items: configs}, nil
-	}
-
+	b.Cleanup(func() { Validate = originalValidate })
 	Validate = controller.Validate
 
 	testConfig := &v1beta1.FRRConfiguration{
@@ -67,11 +71,14 @@ func BenchmarkValidateConfig(b *testing.B) {
 		},
 	}
 
+	if broad {
+		testConfig.Spec.NodeSelector = metav1.LabelSelector{}
+	}
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for b.Loop() {
-		_, err := validateConfig(testConfig)
+		_, err := validator.validateConfig(testConfig)
 		if err != nil {
 			b.Fatalf("validation failed: %v", err)
 		}
@@ -132,4 +139,53 @@ func generateFRRConfigurations(nodes []corev1.Node, configsPerNode int) []v1beta
 		}
 	}
 	return configs
+}
+
+func BenchmarkNodeConfigIndexEvents(b *testing.B) {
+	for _, broad := range []bool{false, true} {
+		b.Run(fmt.Sprintf("configUpdate/broad=%t", broad), func(b *testing.B) {
+			index := newNodeConfigIndex()
+			nodes := generateNodes(100)
+			configs := generateFRRConfigurations(nodes, 20)
+			for i := range nodes {
+				index.upsertNode(&nodes[i])
+			}
+			for i := range configs {
+				index.upsertConfig(&configs[i])
+			}
+			first := configs[0].DeepCopy()
+			second := first.DeepCopy()
+			if broad {
+				first.Spec.NodeSelector = metav1.LabelSelector{}
+			} else {
+				first.Spec.NodeSelector.MatchLabels = nodes[0].Labels
+			}
+			second.Spec.NodeSelector.MatchLabels = nodes[1].Labels
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				index.upsertConfig(first)
+				index.upsertConfig(second)
+			}
+		})
+	}
+	b.Run("nodeLabelUpdate", func(b *testing.B) {
+		index := newNodeConfigIndex()
+		nodes := generateNodes(100)
+		configs := generateFRRConfigurations(nodes, 20)
+		for i := range nodes {
+			index.upsertNode(&nodes[i])
+		}
+		for i := range configs {
+			index.upsertConfig(&configs[i])
+		}
+		changed := nodes[0].DeepCopy()
+		changed.Labels = nodes[1].Labels
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			index.upsertNode(changed)
+			index.upsertNode(&nodes[0])
+		}
+	})
 }
