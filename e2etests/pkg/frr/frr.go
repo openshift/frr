@@ -11,7 +11,6 @@ import (
 	"go.universe.tf/e2etest/pkg/executor"
 	metallbfrr "go.universe.tf/e2etest/pkg/frr"
 	frrcontainer "go.universe.tf/e2etest/pkg/frr/container"
-	"go.universe.tf/e2etest/pkg/ipfamily"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -71,6 +70,50 @@ func (f *FRR) HasEVPNVNI(vni uint32) error {
 		return fmt.Errorf("VNI %d not found in EVPN state, got %d", vni, result.VNI)
 	}
 	return nil
+}
+
+// PrefixCounts holds a peer's prefix counts from a BGP summary.
+type PrefixCounts struct {
+	Received int `json:"pfxRcd"`
+	Sent     int `json:"pfxSnt"`
+}
+
+// EVPNPrefixCounts returns each default-VRF peer's l2vpn/evpn prefix counts.
+func (f *FRR) EVPNPrefixCounts() (map[string]PrefixCounts, error) {
+	out, err := f.exec.Exec("vtysh", "-c", "show bgp vrf default summary json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query BGP summary: %w", err)
+	}
+	var summary struct {
+		EVPN struct {
+			Peers map[string]PrefixCounts `json:"peers"`
+		} `json:"l2VpnEvpn"`
+	}
+	if err := json.Unmarshal([]byte(out), &summary); err != nil {
+		return nil, fmt.Errorf("failed to parse BGP summary: %w", err)
+	}
+	return summary.EVPN.Peers, nil
+}
+
+// EVPNVNI holds the counts FRR reports for one VNI. For an L3 VNI, MACs and
+// Neighbors are router MACs and next hops, and RemoteVTEPs is "n/a".
+type EVPNVNI struct {
+	MACs        int             `json:"numMacs"`
+	Neighbors   int             `json:"numArpNd"`
+	RemoteVTEPs json.RawMessage `json:"numRemoteVteps"`
+}
+
+// EVPNVNIs returns FRR's EVPN VNIs keyed by VNI.
+func (f *FRR) EVPNVNIs() (map[uint32]EVPNVNI, error) {
+	out, err := f.exec.Exec("vtysh", "-c", "show evpn vni json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query EVPN VNIs: %w", err)
+	}
+	var vnis map[uint32]EVPNVNI
+	if err := json.Unmarshal([]byte(out), &vnis); err != nil {
+		return nil, fmt.Errorf("failed to parse EVPN VNIs: %w", err)
+	}
+	return vnis, nil
 }
 
 // HasEVPNType2Routes verifies that EVPN type-2 (MAC/IP) routes exist for
@@ -165,42 +208,4 @@ func (f *FRR) hasEVPNRoutes(vtyshCmd string, expectedRoutes map[string]string) e
 		return fmt.Errorf("routes missing or wrong: %v", missing)
 	}
 	return nil
-}
-
-func AsPathPrependListForPrefix(neigh frrcontainer.FRR, prefix string, ipfam ipfamily.Family, expectedASN string) ([]string, error) {
-	cmd := fmt.Sprintf("vtysh -c 'show bgp %s unicast %s json'", ipfam, prefix)
-	out, err := neigh.Executor.Exec("sh", "-c", cmd)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute vtysh: %w", err)
-	}
-
-	// Define a minimal struct to parse just the AS Path from FRR's JSON output
-	var routeData struct {
-		Paths []struct {
-			AsPath struct {
-				String string `json:"string"`
-			} `json:"aspath"`
-		} `json:"paths"`
-	}
-
-	// Unmarshal the JSON
-	if err := json.Unmarshal([]byte(out), &routeData); err != nil {
-		return nil, fmt.Errorf("failed to parse FRR JSON: %w", err)
-	}
-
-	if len(routeData.Paths) == 0 {
-		return nil, fmt.Errorf("no paths found for prefix %s", prefix)
-	}
-
-	// Extract the AS Path string (e.g., "65000 65000 65000 65000")
-	asPathStr := routeData.Paths[0].AsPath.String
-
-	if strings.TrimSpace(asPathStr) == "" {
-		return nil, fmt.Errorf("no ASNs in the path for prefix %s", prefix)
-	}
-
-	asnList := strings.Fields(asPathStr)
-	// Exclude the last ASN (the base ASN).
-	// E.g. if the base ASN is added once natively, and we prepend 3 times, there are 4 ASNs total.
-	return asnList[:len(asnList)-1], nil
 }

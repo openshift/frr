@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	stdlog "log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -29,8 +30,9 @@ import (
 
 var (
 	metricsPort         = flag.Uint("metrics-port", 9141, "Port to listen on for web interface.")
-	metricsBindAddress  = flag.String("metrics-bind-address", "0.0.0.0", "The address the metric endpoint binds to")
+	metricsBindAddress  = flag.String("metrics-bind-address", "0.0.0.0", "The address the metric endpoint binds to; an IPv6 address goes without brackets")
 	metricsPath         = flag.String("metrics-path", "/metrics", "Path under which to expose metrics.")
+	disableMetricsAuth  = flag.Bool("disable-metrics-auth", false, "Serve metrics without Kubernetes authentication and authorization, e.g. outside a cluster. Anyone who can reach the listener can read them.")
 	tlsCertFile         = flag.String("tls-cert-file", "", "x509 certificate for HTTPS. If empty, a self-signed cert is auto-generated.")
 	tlsKeyFile          = flag.String("tls-private-key-file", "", "x509 private key matching --tls-cert-file.")
 	tlsCipherSuites     = flag.String("tls-cipher-suites", "", "Comma-separated list of TLS cipher suites. If empty, uses Go defaults.")
@@ -51,7 +53,7 @@ func main() {
 	level.Info(logger).Log("version", version.Version(), "commit", version.CommitHash(), "branch", version.Branch(), "goversion", version.GoString(), "msg", "FRR metrics exporter starting "+version.String())
 
 	mux := http.NewServeMux()
-	metricsHandler, err := newMetricsHandler()
+	metricsHandler, err := newMetricsHandler(*disableMetricsAuth)
 	if err != nil {
 		level.Error(logger).Log("msg", "failed to create metrics handler", "error", err)
 		os.Exit(1)
@@ -71,13 +73,13 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:        fmt.Sprintf("%s:%d", *metricsBindAddress, *metricsPort),
+		Addr:        net.JoinHostPort(*metricsBindAddress, fmt.Sprint(*metricsPort)),
 		ReadTimeout: 3 * time.Second,
 		Handler:     mux,
 		TLSConfig:   tlsCfg,
 	}
 
-	level.Info(logger).Log("msg", "Starting exporter", "metricsPath", *metricsPath, "port", *metricsPort)
+	level.Info(logger).Log("msg", "Starting exporter", "metricsPath", *metricsPath, "port", *metricsPort, "metricsAuthDisabled", *disableMetricsAuth)
 
 	if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 		level.Error(logger).Log("error", err)
@@ -85,8 +87,11 @@ func main() {
 	}
 }
 
-func newMetricsHandler() (http.Handler, error) {
+func newMetricsHandler(disableAuth bool) (http.Handler, error) {
 	handler := promHandler()
+	if disableAuth {
+		return handler, nil
+	}
 	filter, err := rbacFilter()
 	if err != nil {
 		return nil, err
@@ -96,21 +101,21 @@ func newMetricsHandler() (http.Handler, error) {
 
 func promHandler() http.Handler {
 	logger := logging.GetLogger()
-	BGPCollector := collector.NewBGP(logger)
-	BFDCollector := collector.NewBFD(logger)
-
 	registry := prometheus.NewRegistry()
-	registry.MustRegister(BGPCollector)
-	registry.MustRegister(BFDCollector)
+	opts := promhttp.HandlerOpts{
+		ErrorLog:      stdlog.New(log.NewStdlibAdapter(level.Error(logger)), "", 0),
+		ErrorHandling: promhttp.ContinueOnError,
+		Registry:      registry,
+	}
 
-	return promhttp.HandlerFor(
-		prometheus.Gatherers{prometheus.DefaultGatherer, registry},
-		promhttp.HandlerOpts{
-			ErrorLog:      stdlog.New(log.NewStdlibAdapter(level.Error(logger)), "", 0),
-			ErrorHandling: promhttp.ContinueOnError,
-			Registry:      registry,
-		},
-	)
+	// The collectors are built per scrape so that their vtysh calls end with
+	// the request, when Prometheus gives up at its scrape timeout.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cli := func(args string) (string, error) { return vtysh.RunContext(r.Context(), args) }
+		collectors := prometheus.NewRegistry()
+		collectors.MustRegister(collector.NewBGP(logger, cli), collector.NewBFD(logger, cli), collector.NewEVPN(logger, cli))
+		promhttp.HandlerFor(prometheus.Gatherers{prometheus.DefaultGatherer, registry, collectors}, opts).ServeHTTP(w, r)
+	})
 }
 
 func rbacFilter() (metricsserver.Filter, error) {
