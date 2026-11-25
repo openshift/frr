@@ -82,6 +82,7 @@ Kubernetes: `>= 1.19.0-0`
 | frrk8s.webhookPort | int | `19443` | Port for the webhook server. |
 | fullnameOverride | string | `""` | String to override the default fully qualified app name. |
 | nameOverride | string | `""` | String to override the default chart name. |
+| namespaceOverride | string | `""` | Namespace for namespaced objects. Empty uses the release namespace. The override namespace must already exist. |
 | prometheus.namespace | string | `""` | The namespace where Prometheus is deployed. Required when ".Values.prometheus.rbacPrometheus == true" and "prometheus.serviceMonitor.enabled=true". |
 | prometheus.rbacPrometheus | bool | `false` | Give Prometheus permission to scrape metallb's namespace. |
 | prometheus.scrapeAnnotations | bool | `false` | Add Prometheus metric auto-collection annotations to the metrics Service. |
@@ -96,6 +97,10 @@ Kubernetes: `>= 1.19.0-0`
 | prometheus.serviceMonitor.relabelings | list | `[]` | Relabel configs to apply to samples before ingestion. |
 | prometheus.serviceMonitor.tlsConfig.insecureSkipVerify | bool | `true` | Disables SSL certificate verification |
 | rbac.create | bool | `true` | Specifies whether to install and use RBAC rules. |
+| statusCleaner.affinity | object | `nil` | Affinity for statuscleaner pod assignment. When null, inherits frrk8s.affinity. |
+| statusCleaner.nodeSelector | object | `{}` | Node selector for statuscleaner pod assignment. |
+| statusCleaner.tolerateMaster | bool | `nil` | Tolerate master nodes for statuscleaner pod scheduling. When null, inherits frrk8s.tolerateMaster. |
+| statusCleaner.tolerations | list | `nil` | Tolerations for statuscleaner pod assignment. When null, inherits frrk8s.tolerations. |
 | tls.cipherSuites | string | `""` | Comma-separated list of TLS cipher suites. If empty, uses Go defaults. Only applies to TLS 1.2. |
 | tls.curvePreferences | string | `""` | Comma-separated list of numeric CurveID values (e.g. 29,4588). See https://pkg.go.dev/crypto/tls#CurveID. If empty, uses Go defaults. |
 | tls.metricsTLSSecret | string | `""` | The name of the secret to be mounted in the pods to provide TLS certificates for metrics endpoints. If not present, a self-signed certificate is auto-generated. |

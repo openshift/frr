@@ -176,6 +176,10 @@
       "description": "Override fully qualified app name",
       "type": "string"
     },
+    "namespaceOverride": {
+      "description": "Namespace for namespaced objects. Empty uses the release namespace. The override namespace must already exist.",
+      "type": "string"
+    },
     "tls": {
       "description": "TLS configuration for all components",
       "type": "object",
@@ -392,6 +396,48 @@
           }
         }
       ]
+    },
+    "statusCleaner": {
+      "description": "Statuscleaner Deployment scheduling configuration",
+      "type": "object",
+      "properties": {
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerateMaster": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tolerations": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "affinity": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     },
     "crds": {
       "description": "CRD configuration",
