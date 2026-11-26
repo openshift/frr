@@ -294,7 +294,9 @@ func setupWebhook(mgr manager.Manager) {
 	level.Info(logger).Log("op", "startup", "action", "webhooks enabled")
 
 	webhooks.Logger = logger
-	webhooks.WebhookClient = mgr.GetAPIReader()
+	// Admission is gated on initial cache sync; subsequent changes are visible
+	// as informer watch events arrive, without listing the API on every request.
+	webhooks.WebhookClient = mgr.GetCache()
 	webhooks.Validate = controller.Validate
 
 	if err := (&webhooks.FRRConfigValidator{}).SetupWebhookWithManager(mgr); err != nil {
